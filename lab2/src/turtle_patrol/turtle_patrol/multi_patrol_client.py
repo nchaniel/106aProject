@@ -6,14 +6,13 @@ import sys
 
 class MultiTurtlePatrolClient(Node):
     def __init__(self, turtle_name, x, y, theta, vel, omega):
-        super().__init__(f'multi_turtle_patrol_client_{turtle_name}')
+        super().__init__(f'multi_turtle_patrol_client_{turtle_name}') #allows multiple turtles to run as different clients
 
         self._client = self.create_client(MultiPatrol, '/turtle_patrol')
-
-        self.get_logger().info("Waiting for /turtle_patrol service...")
         self._client.wait_for_service()
 
-        req = MultiPatrol.Request()
+        req = MultiPatrol.Request() #makes a request object to send to server
+        # info to be used, matches srv file
         req.turtle_name = turtle_name
         req.x = float(x)
         req.y = float(y)
@@ -21,7 +20,6 @@ class MultiTurtlePatrolClient(Node):
         req.vel = float(vel)
         req.omega = float(omega)
 
-        self.get_logger().info(f"Sending patrol request for {turtle_name}")
         future = self._client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
 
@@ -44,7 +42,7 @@ def main(args=None):
         )
         return
 
-    MultiTurtlePatrolClient(*sys.argv[1:])
+    MultiTurtlePatrolClient(*sys.argv[1:]) #parses through command sent on terminal to the above 
     rclpy.shutdown()
 
 
