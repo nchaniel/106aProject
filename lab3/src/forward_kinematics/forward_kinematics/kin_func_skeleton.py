@@ -104,8 +104,11 @@ def skew_3d(omega):
     Returns:
     omega_hat - (3,3) ndarray: the corresponding skew symmetric matrix
     """
+    omega_hat = np.array([[0, -omega[2], omega[1]],
+                          [omega[2], 0, -omega[0]],
+                          [-omega[1], omega[0], 0]])
+    return omega_hat
 
-    # YOUR CODE HERE
 
 def rotation_3d(omega, theta):
     """
@@ -118,8 +121,16 @@ def rotation_3d(omega, theta):
     Returns:
     rot - (3,3) ndarray: the resulting rotation matrix
     """
+    omega_hat = skew_3d(omega)
+    omega_norm = np.linalg.norm(omega)
+    
+    # Rodrigues' formula
+    rot = (np.eye(3) +
+           (omega_hat / omega_norm) * np.sin(omega_norm * theta) +
+           ((omega_hat @ omega_hat) / omega_norm**2) * (1 - np.cos(omega_norm * theta)))
+    
+    return rot
 
-    # YOUR CODE HERE
 
 def hat_3d(xi):
     """
@@ -131,8 +142,13 @@ def hat_3d(xi):
     Returns:
     xi_hat - (4,4) ndarray: the corresponding 4x4 matrix
     """
+    xi_hat = np.zeros((4, 4))
+    v = xi[0:3]
+    omega = xi[3:6]
+    xi_hat[0:3, 0:3] = skew_3d(omega)
+    xi_hat[0:3, 3] = v
+    return xi_hat
 
-    # YOUR CODE HERE
 
 def homog_3d(xi, theta):
     """
@@ -145,8 +161,24 @@ def homog_3d(xi, theta):
     Returns:
     g - (4,4) ndarary: the resulting homogeneous transformation matrix
     """
+    v = xi[0:3]
+    omega = xi[3:6]
+    omega_norm = np.linalg.norm(omega)
+    g = np.eye(4,4)
 
-    # YOUR CODE HERE
+    # Prismatic joint
+    if np.isclose(omega_norm, 0): #just in case it isn't exactly 0
+        g[0:3, 3] = v * theta
+        return g
+    
+    # Revolute joint
+    else: 
+        omega_hat = skew_3d(omega)
+        R = rotation_3d(omega, theta)
+        p = (1/omega_norm**2) * ((np.eye(3) - R) @ (omega_hat @ v) + np.outer(omega, omega) @ v * theta)
+        g[0:3, 0:3] = R
+        g[0:3, 3] = p
+        return g
 
 
 def prod_exp(xi, theta):
@@ -162,7 +194,16 @@ def prod_exp(xi, theta):
     g - (4,4) ndarray: the resulting homogeneous transformation matrix
     """
 
-    # YOUR CODE HERE
+    N = theta.shape[0] # number of joints
+    g = np.eye(4)
+    
+    for i in range(N):
+        xi_i = xi[:, i]         
+        theta_i = theta[i]
+        g = g @ homog_3d(xi_i, theta_i)
+    
+    return g
+
 
 #---------------------------------TESTING CODE---------------------------------
 #-------------------------DO NOT MODIFY ANYTHING BELOW HERE--------------------
