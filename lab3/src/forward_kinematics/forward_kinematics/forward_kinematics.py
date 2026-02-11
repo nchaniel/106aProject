@@ -1,8 +1,7 @@
 #!usr/bin/env python
-
 import numpy as np
 import scipy as sp
-import forward_kinematics.kin_func_skeleton as kfs 
+import kin_func_skeleton as kfs 
 
 def ur7e_foward_kinematics_from_angles(joint_angles):
     """
@@ -41,7 +40,24 @@ def ur7e_foward_kinematics_from_angles(joint_angles):
                   [0., 1., 0.]])
 
     # YOUR CODE HERE (Task 1)
-    print(R)
+    T = np.eye(4)
+
+    for i in range(6):
+        # Extract the joint axis and joint displacement
+        omega = w0[:, i]
+        q = q0[:, i]
+        theta = joint_angles[i]  # Joint angle
+
+        xi = np.concatenate([q, omega])  # Twist representation
+        T_joint = kfs.homog_3d(xi, theta)  # Compute the joint's transformation matrix
+        
+        # Update the overall transformation matrix by multiplying with the current joint's transformation
+        T = T @ T_joint
+
+    # Apply the final rotation (if needed, depending on the robot's configuration)
+    T[0:3, 0:3] = R @ T[0:3, 0:3]
+
+    return T
 
 def ur7e_forward_kinematics_from_joint_state(joint_state):
     """
@@ -56,9 +72,12 @@ def ur7e_forward_kinematics_from_joint_state(joint_state):
     -------
     (4x4) np.ndarray: homogenous transformation matrix
     """
+    # Extract joint angles from joint_state object 
+    j1, j2, j3, j4, j5, j6 = joint_state.position  # joint_state.position should be a list of angles
     
-    angles = np.zeros(6)
-    # YOUR CODE HERE (Task 2)
+    # Convert to a numpy array
+    angles = np.array([j1, j2, j3, j4, j5, j6])
     
-
-    # END YOUR CODE HERE
+    T = ur7e_foward_kinematics_from_angles(angles)  # Call the function you implemented in Task 1
+    
+    return T
