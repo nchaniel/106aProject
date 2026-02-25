@@ -1,9 +1,9 @@
 #!usr/bin/env python
 import numpy as np
 import scipy as sp
-import kin_func_skeleton as kfs 
+import forward_kinematics.kin_func_skeleton as kfs
 
-def ur7e_foward_kinematics_from_angles(joint_angles):
+def ur7e_forward_kinematics_from_angles(joint_angles):
     """
     Calculate the orientation of the ur7e's end-effector tool given
     the joint angles of each joint in radians
@@ -39,27 +39,36 @@ def ur7e_foward_kinematics_from_angles(joint_angles):
                   [0., 0., 1.], 
                   [0., 1., 0.]])
 
-    # YOUR CODE HERE (Task 1)
-    T = np.eye(4)
+    # define gst(0)
+    # this represents the tool frame relative to base when all angles are 0
+    # use the point on the last joint (wrist_3) for the translation
+    q_tool = q0[:, 5] 
+    gst0 = np.eye(4)
+    gst0[:3, :3] = R      
+    gst0[:3, 3] = q_tool  #initial tool position
 
+    # compute PoE
+    prod_exp = np.eye(4)
     for i in range(6):
-        # Extract the joint axis and joint displacement
         omega = w0[:, i]
         q = q0[:, i]
-        theta = joint_angles[i]  # Joint angle
+        theta = joint_angles[i]
 
-        xi = np.concatenate([q, omega])  # Twist representation
-        T_joint = kfs.homog_3d(xi, theta)  # Compute the joint's transformation matrix
+        # calculate the linear velocity component of the twist
+        # v = -omega x q
+        v = np.cross(-omega, q)
+        xi = np.concatenate([v, omega]) #twist
         
-        # Update the overall transformation matrix by multiplying with the current joint's transformation
-        T = T @ T_joint
+        # calculate e^(xi * theta)
+        exp_xi_theta = kfs.homog_3d(xi, theta)
+        
+        # multiply them in order
+        prod_exp = prod_exp @ exp_xi_theta 
 
-    # Apply the final rotation (if needed, depending on the robot's configuration)
-    T[0:3, 0:3] = R @ T[0:3, 0:3]
+    # apply the product of exponentials to the initial condition to get gst(theta)
+    return prod_exp @ gst0
 
-    return T
-
-def ur7e_forward_kinematics_from_joint_state(joint_state):
+def ur7e_forward_kinematics_from_joint_state(joint_state): #not necessary as it was sorted in the node
     """
     Computes the orientation of the ur7e's end-effector given the joint
     state.

@@ -25,12 +25,28 @@ class TFListenerNode(Node):
 
     def lookup_transform(self):
         try:
-            # Look up the transform from source_frame to target_frame
-            trans = self.tfBuffer.lookup_transform(self.target_frame, self.source_frame, rclpy.time.Time())
+            # look up the latest transform
+            trans = self.tfBuffer.lookup_transform(
+                self.target_frame,  
+                self.source_frame, 
+                rclpy.time.Time()
+            )
 
-            # If successful, print the transformation
-            self.get_logger().info(f"Transform from {self.source_frame} to {self.target_frame} is:\n{trans}")
+            # extract components for easier reading
+            t = trans.transform.translation
+            r = trans.transform.rotation
+
+            # create a clean, formatted string 
+            output = (
+                f"\nAt time {trans.header.stamp.sec}.{trans.header.stamp.nanosec}\n"
+                f"- Translation: [{t.x:.3f}, {t.y:.3f}, {t.z:.3f}]\n"
+                f"- Rotation: in Quaternion [{r.x:.3f}, {r.y:.3f}, {r.z:.3f}, {r.w:.3f}]"
+            )
+
+            self.get_logger().info(output)
         
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            self.get_logger().warn(f"Waiting for transform: {e}")
         except tf2_ros.LookupException as e:
             self.get_logger().warn(f"Could not find transform: {e}")
         except tf2_ros.ConnectivityException as e:
