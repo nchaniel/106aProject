@@ -21,7 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'keyboard_controller = joint_control.keyboard_controller:main',
-            'validate_trajectory = joint_control.validate_trajectory:main'
+            'validate_trajectory = joint_control.validate_trajectory:main',
+            'joint_pos_controller = joint_control.joint_position_controller:main'
         ],
     },
 )
