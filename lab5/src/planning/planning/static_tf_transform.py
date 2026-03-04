@@ -25,9 +25,28 @@ class ConstantTransformPublisher(Node):
         # TODO: Fill out TransformStamped message
         # ------------------------------------------
 
+        
+
+        #Frame IDs tell where ROS which part of the robot camera is attached to
+        self.transform.header.frame_id = "wrist_3_link"
+        self.transform.child_frame_id = "camera_depth_optical_frame"
+
+        #Translate the offset between the camera and the end effector
+        self.transform.transform.translation.x = G[0, 3]
+        self.transform.transform.translation.y = G[1, 3]
+        self.transform.transform.translation.z = G[2, 3]
+
         # Convert rotation matrix to quaternion (x, y, z, w)
+        rotation_matrix = G[:3, :3]
+        r = R.from_matrix(rotation_matrix)
+        q = r.as_quat()
 
         # Populate TransformStamped
+        self.transform.transform.rotation.x = q[0]
+        self.transform.transform.rotation.y = q[1]
+        self.transform.transform.rotation.z = q[2]
+        self.transform.transform.rotation.w = q[3]
+
 
         self.get_logger().info(f"Broadcasting transform:\n{G}\nQuaternion: {q}")
 
