@@ -16,8 +16,8 @@ class RealSensePCSubscriber(Node):
         self.target_frame = self.declare_parameter('target_frame', 'base_link').value
         self.max_y = float(self.declare_parameter('max_y', 0.79).value)
 
-        self.min_z = float(self.declare_parameter('min_z', -0.18).value)
-        self.max_z = float(self.declare_parameter('max_z', -0.15).value)
+        self.min_z = float(self.declare_parameter('min_z', -0.15).value)
+        self.max_z = float(self.declare_parameter('max_z', -0.10).value)
         self.add_on_set_parameters_callback(self._on_parameter_update)
 
         self.tf_buffer = Buffer()
@@ -26,7 +26,7 @@ class RealSensePCSubscriber(Node):
         # Subscribers
         self.pc_sub = self.create_subscription(
             PointCloud2,
-            'INSERT_TOPIC_NAME',
+            '/camera/camera/depth/color/points',
             self.pointcloud_callback,
             10
         )
@@ -38,21 +38,24 @@ class RealSensePCSubscriber(Node):
         self.get_logger().info("Subscribed to PointCloud2 topic and marker publisher ready")
 
     def pointcloud_callback(self, msg: PointCloud2):
-
+        self.get_logger().info("1. Message received from camera")
         # Transform the pointcloud from its original frame to base_link
         # Lookup Transform and use library function to transform cloud
 
         # Filter points between z coords between min_z and max_z and max_y
         # Call the numpy array filtered_points
 
-        source_frame = _______ # TODO: Fill in the source frame based on what you implemented in your static TF broadcaster 
+        source_frame = 'camera_depth_optical_frame' #Fill in the source frame based on what you implemented in your static TF broadcaster 
         try:
-            tf = self.tf_buffer.lookup_transform(_______, _______, Time()) # TODO: the entire tf lookup params should be filled in
+            
+            tf = self.tf_buffer.lookup_transform(self.target_frame, source_frame, Time()) # the entire tf lookup params should be filled in
+            self.get_logger().info("2. Transform found")
         except TransformException as ex:
-            self.get_logger().warn(f'Could not transform {source_frame} to {self.target_frame}: {ex}')
+            self.get_logger().warn(f'3. TF Failure: {ex}')
             return
 
-        transformed_cloud = do_transform_cloud(_______, _______) # TODO: look what do_transform_cloud takes in and outputs
+        # takes in raw data and applies the tf to every point
+        transformed_cloud = do_transform_cloud(msg, tf) #look what do_transform_cloud takes in and outputs
 
         raw_points = pc2.read_points(
             transformed_cloud,
@@ -64,15 +67,22 @@ class RealSensePCSubscriber(Node):
                 (raw_points['x'], raw_points['y'], raw_points['z'])
             ).astype(np.float32, copy=False)
 
+        self.get_logger().info(f"4. Filtering {len(points_base)} points")
         # TODO: Create masks based on the specified min, max y and z parameters above in order to filter points
-        filtered_points = _______
+
+        #points base gives us all the z coordinates, and we make sure they fall within max and min z
+        z_mask = (points_base[:, 2] >= self.min_z) & (points_base[:, 2] <= self.max_z)
+
+        y_mask = (points_base[:, 1] <= self.max_y)
+
+        # keeps only the points that fit both y and z criteria
+        filtered_points = points_base[z_mask & y_mask]
 
         if filtered_points.size == 0:
-            self.get_logger().warn(
-                f'No points after filters: z in [{self.min_z:.3f}, {self.max_z:.3f}] m, y <= {self.max_y:.3f} m'
-            )
+            self.get_logger().warn("5. Filter killed everything!")
             return
 
+        self.get_logger().info("6. Publishing data!")
         filtered_cloud = pc2.create_cloud_xyz32(
             transformed_cloud.header,
             filtered_points.tolist(),
@@ -80,12 +90,20 @@ class RealSensePCSubscriber(Node):
         self.filtered_points_pub.publish(filtered_cloud)
 
         # TODO: Compute cube position in base_link frame using filtered_points.
-        cube_x = _______
-        cube_y = _______
-        cube_z = _______
+        #takes the average of the points and sets that as the center of cube
+        cube_x, cube_y, cube_z = np.mean(filtered_points, axis = 0)
+      
 
-        # TODO: Publish the cube pose message with the cube position information
-        cube_pose = _______
+        # TODO: Publish the cube pose message with the cube position information in stamped format
+        cube_pose = PointStamped()
+
+        #sets the header, telling its relative to base link
+        cube_pose.header = transformed_cloud.header
+
+        #sets actual coordinates
+        cube_pose.point.x = float(cube_x)
+        cube_pose.point.y = float(cube_y)
+        cube_pose.point.z = float(cube_z)
 
         self.cube_pose_pub.publish(cube_pose)
 
