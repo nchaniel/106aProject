@@ -47,39 +47,60 @@ class OccupancyGrid2d(Node):
         self.declare_parameter("random_downsample", 0.1)
         self._random_downsample = self.get_parameter("random_downsample").value
 
-         # Dimensions and bounds.
+        # Dimensions and bounds.
         # TODO! You'll need to set values for class variables called:
-        # -- self._x_num
-        # -- self._x_min
-        # -- self._x_max
-        # -- self._x_res # The resolution in x. Note: This isn't a ROS parameter. What will you do instead?
-        # -- self._y_num
-        # -- self._y_min
-        # -- self._y_max
-        # -- self._y_res # The resolution in y. Note: This isn't a ROS parameter. What will you do instead?
+        self.declare_parameter("x/num", 25) #25 original
+        self._x_num = self.get_parameter("x/num").value
+        
+        self.declare_parameter("x/min", -10.0)
+        self._x_min = self.get_parameter("x/min").value
+        
+        self.declare_parameter("x/max", 10.0)
+        self._x_max = self.get_parameter("x/max").value
+        
+        self._x_res = (self._x_max - self._x_min) / self._x_num
 
+        self.declare_parameter("y/num", 25) #25 original
+        self._y_num = self.get_parameter("y/num").value
+
+        self.declare_parameter("y/min", -10.0)
+        self._y_min = self.get_parameter("y/min").value
+        
+        self.declare_parameter("y/max", 10.0)
+        self._y_max = self.get_parameter("y/max").value
+
+        self._y_res = (self._y_max - self._y_min) / self._y_num
+
+        #below is provided
         self.declare_parameter("update/occupied", 0.7)
         self._occupied_update = self.probability_to_logodds(
             self.get_parameter("update/occupied").value)
+        
         self.declare_parameter("update/occupied_threshold", 0.97)
         self._occupied_threshold = self.probability_to_logodds(
             self.get_parameter("update/occupied_threshold").value)
+        
         self.declare_parameter("update/free", 0.3)
         self._free_update = self.probability_to_logodds(
             self.get_parameter("update/free").value)
+        
         self.declare_parameter("update/free_threshold", 0.03)
         self._free_threshold = self.probability_to_logodds(
             self.get_parameter("update/free_threshold").value)
 
-        # Topics.
-        # TODO! You'll need to set values for class variables called:
-        # -- self._sensor_topic
-        # -- self._vis_topic
+        # Topics
+        self.declare_parameter("topics/sensor", "/scan")
+        self._sensor_topic = self.get_parameter("topics/sensor").value
 
-        # Frames.
-        # TODO! You'll need to set values for class variables called:
-        # -- self._sensor_frame
-        # -- self._fixed_frame
+        self.declare_parameter("topics/vis", "/vis/map")
+        self._vis_topic = self.get_parameter("topics/vis").value
+
+        # Frames
+        self.declare_parameter("frames/sensor", "base_link") #bot's position
+        self._sensor_frame = self.get_parameter("frames/sensor").value
+
+        self.declare_parameter("frames/fixed", "odom") #defined as where bot starts
+        self._fixed_frame = self.get_parameter("frames/fixed").value
 
         return True
 
@@ -135,7 +156,8 @@ class OccupancyGrid2d(Node):
                 continue
             
             # Get angle of this ray in fixed frame.
-            # TODO!
+            # fixed angle = robot yaw + angle min + (index * angle increment)
+            angle = yaw + msg.angle_min + (idx * msg.angle_increment)
 
             if r > msg.range_max or r < msg.range_min:
                 continue
@@ -145,6 +167,33 @@ class OccupancyGrid2d(Node):
             # Only update each voxel once. 
             # The occupancy grid is stored in self._map
             # TODO!
+            # calculates where laser hits an obstacle
+            
+            #creates a set to track which voxels have been defined
+            updated_voxels = set()
+
+            step_size = self._x_res / 2.0 # step size half the size of a voxel
+
+            # iterate from the lasters hit point (r) back to robot sensor
+            for dist in np.arange(r, 0.0, -step_size):
+                #gets x, y coordinates from polar coordinates
+                curr_x = sensor_x + dist * np.cos(angle)
+                curr_y = sensor_y + dist * np.sin(angle)
+                
+                #converts xy to grid
+                voxel = self.point_to_voxel(curr_x, curr_y)
+
+                if voxel is None or voxel in updated_voxels: # skips if not in map of already defined
+                    continue
+                updated_voxels.add(voxel)
+                ii, jj = voxel
+                
+                # if laser hits obstacle it increases log odds to mark as occupied, and cap at max threshold
+                if dist == r:
+                    self._map[ii,jj] = min(self._map[ii,jj] + self._occupied_update, self._occupied_threshold)
+                # since laser hit obstacle, that means every point before that must be empty, so decrease log odds and cap it at min value
+                else:
+                    self._map[ii,jj] = max(self._map[ii,jj] + self._free_update, self._free_threshold)
         # Visualize.
         self.visualize()
 
