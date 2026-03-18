@@ -48,11 +48,24 @@ class IKPlanner(Node):
                    qx=0.0, qy=1.0, qz=0.0, qw=0.0): # Think about why the default quaternion is like this. Why is qy=1?
         pose = PoseStamped()
         pose.header.frame_id = 'base_link'
-        pose.pose = _______ # TODO: There are multiple parts/lines to fill here!
+        # Filling in the position
+        pose.pose.position.x = float(x)
+        pose.pose.position.y = float(y)
+        pose.pose.position.z = float(z)
+
+        # Filling in the orientation (rotation)
+        pose.pose.orientation.x = float(qx)
+        pose.pose.orientation.y = float(qy)
+        pose.pose.orientation.z = float(qz)
+        pose.pose.orientation.w = float(qw)
 
 
         ik_req = GetPositionIK.Request()
         # TODO: Lookup the format for ik request and build ik_req by filling in necessary parameters. What is your end-effector link name?
+        ik_req.ik_request.ik_link_name = 'tool0'        # the link we are positioning (the gripper)
+        ik_req.ik_request.pose_stamped = pose           # the target pose we just made above
+        ik_req.ik_request.robot_state.joint_state = current_joint_state
+        # below was provided
         ik_req.ik_request.avoid_collisions = True
         ik_req.ik_request.timeout = Duration(sec=5)
         ik_req.ik_request.group_name = 'ur_manipulator'
