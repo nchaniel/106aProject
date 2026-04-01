@@ -55,21 +55,35 @@ class TurtleBotController(Node):
             self.prev_yaw_err = None
             self.pub.publish(Twist())
             return
-
+        
+        #Defining waypoint pose, original robot frame,
         waypoint = self.trajectory[self.traj_index]
         waypoint_pose = PoseStamped()
-        # TODO: Fill in waypoint pose message using docs for PoseStamped 
-        # (recall what frame this trajectory point is in from your trajectory.py code)
-        # NOTE: The staticmethod below may be helpful
-
-
-        # TODO: Find tf and transform waypoint to base_link
-        # NOTE: do_transform_pose takes in and outputs a pose message type not PoseStamped (this is contrary to online documentation)
-        odom_to_base = ...
-        waypoint_base = ...
-
-        # TODO: Calculate proportional error terms including x_err and y_err
+        waypoint_pose.header.frame_id = 'odom'
+        waypoint_pose.pose.position.x = waypoint[0]
+        waypoint_pose.pose.position.y = waypoint[1]
         
+
+        #Convert to quarternion
+        q = self._quat_from_yaw(waypoint[2])
+        waypoint_pose.pose.orientation.x = q[0]
+        waypoint_pose.pose.orientation.y = q[1]
+        waypoint_pose.pose.orientation.z = q[2]
+        waypoint_pose.pose.orientation.w = q[3]
+        
+
+        # TF function transform from odom to base link
+        try:
+            odom_to_base = self.tf_buffer.lookup_transform('base_link', 'odom', rclpy.time.Time())
+        
+            waypoint_base = do_transform_pose(waypoint_pose.pose, odom_to_base)
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            self.get_logger().error(f'Could not transform odom to base_link: {e}')
+            return
+        # TODO: Calculate proportional error terms including x_err and y_err
+        x_err = waypoint_base.position.x
+        y_err = waypoint_base.position.y
+
 
         if abs(x_err) < 0.03 and abs(y_err) < 0.03:
             self.traj_index += 1
@@ -79,10 +93,42 @@ class TurtleBotController(Node):
             return
 
         # TODO: Update derivative and integral error terms (refer to class variables defined in init)
-        
-        # TODO: Generate control command from error terms 
+      
+        # Because the Turtlebot can't move sideways (y), we convert y_err 
+        # into a heading error (yaw_err) so the robot rotates toward the point.
+        yaw_err = math.atan2(y_err, x_err)
         control_cmd = Twist()
+
+        # I and D
+        # The timer is set to 0.5s in __init__, so dt is 0.5
+        dt = 0.5 
+
+        # Update Integral Error: sum of (error * time)
+        self.x_i_err += x_err * dt
+        self.yaw_i_err += yaw_err * dt
+
+        # Update Derivative Error: (current_error - previous_error) / time
+        x_d_err = 0.0
+        yaw_d_err = 0.0
+        if self.prev_x_err is not None:
+            x_d_err = (x_err - self.prev_x_err) / dt
+            yaw_d_err = (yaw_err - self.prev_yaw_err) / dt
+
+        # Save current errors for the next loop iteration
+        self.prev_x_err = x_err
+        self.prev_yaw_err = yaw_err
+
+        control_cmd = Twist()
+
+        # Linear Velocity = P + I + D
+        v = (self.Kp[0,0] * x_err) + (self.Ki[0,0] * self.x_i_err) + (self.Kd[0,0] * x_d_err)
         
+        # Angular Velocity = P + I + D
+        w = (self.Kp[1,1] * yaw_err) + (self.Ki[1,1] * self.yaw_i_err) + (self.Kd[1,1] * yaw_d_err)
+        
+        control_cmd.linear.x = float(np.clip(v, -0.2, 0.2)) # Max speed 0.2 m/s
+        control_cmd.angular.z = float(np.clip(w, -1.0, 1.0)) # Max turn 1.0 rad/s
+
         self.pub.publish(control_cmd)
   
 
@@ -92,12 +138,11 @@ class TurtleBotController(Node):
     def planning_callback(self, msg: PointStamped):
         if self.trajectory:
             return
-        self.trajectory = plan_curved_trajectory(...)
+        target = (msg.point.x, msg.point.y)
+        self.get_logger().info(f"Planning path to: {target}")
+        
+        self.trajectory = plan_curved_trajectory(target)
         self.traj_index = 0
-        self.x_i_err = 0.0
-        self.yaw_i_err = 0.0
-        self.prev_x_err = None
-        self.prev_yaw_err = None
 
     # ------------------------------------------------------------------
     # Utility
