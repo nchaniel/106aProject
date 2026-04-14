@@ -4,35 +4,18 @@ dish_scanner.py — Plating robot dish scanner
 =============================================
 Orbits the UR7e around a plated dish and captures images for 3D reconstruction.
 
-Builds directly on the Lab 7 Checkpoint 1 pipeline:
-  • AR tag detection via TF (same lookup as main.py)
-  • ScanOrbitTrajectory for the orbital path
-  • UR7e trajectory controller for execution (same as default controller)
-  • Image capture triggered at angularly-uniform waypoints
+Fixed: IK seeding with previous solution, joint angle unwrapping,
+       increased waypoint density, same fixes as main.py.
 
 Usage
 -----
-    ros2 run visual_servoing dish_scanner \\
-        --ar_marker 0 \\
-        --radius 0.18 \\
-        --height 0.28 \\
-        --total_time 20.0 \\
-        --n_images 36 \\
+    ros2 run visual_servoing dish_scanner \
+        --ar_marker 0 \
+        --radius 0.18 \
+        --height 0.28 \
+        --total_time 20.0 \
+        --n_images 36 \
         --output_dir ~/scan_output
-
-Then feed the saved images to COLMAP or Meshroom for 3D reconstruction.
-See the bottom of this file for a ready-to-run COLMAP command.
-
-Architecture
-------------
-DishScanner (Node)
-  ├── TF listener          — AR tag lookup (same as VisualServo)
-  ├── MoveIt IK client     — Cartesian → joint space
-  ├── UR7eTrajectoryController — joint trajectory execution
-  ├── CameraCapture        — saves images at computed capture times
-  └── ScanOrbitTrajectory  — generates the orbital path
-
-Author: adapted from EECS C106A Lab 7 starter code, Spring 2026
 """
 
 import os
@@ -52,12 +35,12 @@ from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.srv import GetPositionIK
 from sensor_msgs.msg import Image, JointState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformListener
 
 import cv2
 from cv_bridge import CvBridge
 
-# Import from the visual_servoing package
 from .trajectories import LinearTrajectory, ScanOrbitTrajectory
 from .controller import UR7eTrajectoryController
 
@@ -82,6 +65,25 @@ CAMERA_TOPIC = '/camera/camera/color/image_raw'
 
 
 # ---------------------------------------------------------------------------
+# Joint-space utilities (same as fixed main.py)
+# ---------------------------------------------------------------------------
+
+def unwrap_joint_angles(prev_positions, new_positions):
+    """
+    Unwrap joint angles so transitions never jump by more than pi.
+    """
+    diff = np.array(new_positions) - np.array(prev_positions)
+    adjusted = np.array(new_positions) - np.round(diff / (2 * np.pi)) * (2 * np.pi)
+    return adjusted
+
+
+def extract_joint_positions(joint_state_msg):
+    """Extract the 6 UR joint positions in canonical order."""
+    d = {name: pos for name, pos in zip(joint_state_msg.name, joint_state_msg.position)}
+    return np.array([d[n] for n in JOINT_NAMES])
+
+
+# ---------------------------------------------------------------------------
 # Camera capture helper
 # ---------------------------------------------------------------------------
 
@@ -101,12 +103,12 @@ class CameraCapture:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.bridge = CvBridge()
-        self.latest_image: np.ndarray | None = None
+        self.latest_image = None
         self._lock = threading.Lock()
 
-        self._capture_times: np.ndarray = np.array([])
-        self._next_capture_idx: int = 0
-        self._saved_count: int = 0
+        self._capture_times = np.array([])
+        self._next_capture_idx = 0
+        self._saved_count = 0
 
         self._sub = node.create_subscription(
             Image, CAMERA_TOPIC, self._image_callback, 5
@@ -119,23 +121,14 @@ class CameraCapture:
             self.latest_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
     def mark_capture_times(self, capture_times: np.ndarray):
-        """
-        Set the scheduled capture times (seconds from trajectory start).
-        Must be called before the trajectory begins.
-        """
         self._capture_times = np.sort(capture_times)
         self._next_capture_idx = 0
         self._saved_count = 0
         self.node.get_logger().info(
-            f"CameraCapture: scheduled {len(capture_times)} captures at "
-            f"t = {capture_times.round(1).tolist()} s"
+            f"CameraCapture: scheduled {len(capture_times)} captures"
         )
 
     def tick(self, elapsed_time: float):
-        """
-        Call this every control cycle with the current elapsed time.
-        Saves an image whenever a scheduled capture time is passed.
-        """
         while (self._next_capture_idx < len(self._capture_times) and
                elapsed_time >= self._capture_times[self._next_capture_idx]):
             self._save_image(self._next_capture_idx)
@@ -155,7 +148,7 @@ class CameraCapture:
         cv2.imwrite(str(filename), img)
         self._saved_count += 1
         self.node.get_logger().info(
-            f"CameraCapture: saved image {self._saved_count} → {filename.name}"
+            f"CameraCapture: saved image {self._saved_count} -> {filename.name}"
         )
 
     @property
@@ -180,24 +173,19 @@ class DishScanner(Node):
         super().__init__('dish_scanner_node')
         self.args = args
 
-        # TF listener (same pattern as VisualServo)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Joint state subscriber
-        self.current_joint_state: JointState | None = None
+        self.current_joint_state = None
         self.create_subscription(JointState, '/joint_states', self._joint_state_cb, 1)
 
-        # MoveIt IK client
         self.ik_client = self.create_client(GetPositionIK, '/compute_ik')
         self.get_logger().info('Waiting for /compute_ik service...')
         while not self.ik_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Still waiting for /compute_ik...')
 
-        # Trajectory executor (uses the same UR7eTrajectoryController as main.py)
         self.trajectory_controller = UR7eTrajectoryController(self)
 
-        # Camera capture helper
         output_dir = args.output_dir or self._default_output_dir()
         self.camera_capture = CameraCapture(self, output_dir, args.n_images)
 
@@ -211,11 +199,20 @@ class DishScanner(Node):
         self.current_joint_state = msg
 
     # ------------------------------------------------------------------
-    # IK (identical to VisualServo.compute_ik)
+    # IK  (FIXED: accepts seed_joint_state)
     # ------------------------------------------------------------------
 
-    def compute_ik(self, x, y, z, qx=0.0, qy=1.0, qz=0.0, qw=0.0):
-        if self.current_joint_state is None:
+    def compute_ik(self, x, y, z, qx=0.0, qy=1.0, qz=0.0, qw=0.0, seed_joint_state=None):
+        """
+        Compute IK with optional seed state.
+
+        The seed_joint_state parameter is the key fix: seeding with the
+        previous waypoint's IK solution keeps the solver in the same
+        joint-space branch throughout the orbit.
+        """
+        seed = seed_joint_state if seed_joint_state is not None else self.current_joint_state
+
+        if seed is None:
             self.get_logger().error("No joint state available for IK")
             return None
 
@@ -231,7 +228,7 @@ class DishScanner(Node):
 
         req = GetPositionIK.Request()
         req.ik_request.group_name = 'ur_manipulator'
-        req.ik_request.robot_state.joint_state = self.current_joint_state
+        req.ik_request.robot_state.joint_state = seed
         req.ik_request.ik_link_name = 'wrist_3_link'
         req.ik_request.pose_stamped = pose
         req.ik_request.timeout = Duration(sec=2)
@@ -252,7 +249,7 @@ class DishScanner(Node):
         return result.solution.joint_state
 
     # ------------------------------------------------------------------
-    # AR tag lookup (identical to VisualServo.lookup_ar_tag)
+    # AR tag lookup
     # ------------------------------------------------------------------
 
     def lookup_ar_tag(self, marker_id, timeout=5.0):
@@ -276,23 +273,136 @@ class DishScanner(Node):
         return None
 
     # ------------------------------------------------------------------
+    # Build joint trajectory from Cartesian trajectory (FIXED)
+    # ------------------------------------------------------------------
+
+    def _build_joint_trajectory(self, trajectory, num_waypoints=80):
+        """
+        Convert a Cartesian trajectory into a JointTrajectory with:
+        - IK seeded from previous solution
+        - Joint angle unwrapping
+        - Finite-difference velocities
+
+        Returns
+        -------
+        JointTrajectory or None
+        """
+        times = np.linspace(0, trajectory.total_time, num_waypoints)
+
+        joint_traj = JointTrajectory()
+        joint_traj.joint_names = list(JOINT_NAMES)
+
+        prev_ik_solution = None
+        prev_positions = None
+        all_positions = []
+
+        for i, t in enumerate(times):
+            desired_pose = trajectory.target_pose(t)
+            x, y, z = desired_pose[0:3]
+            qx, qy, qz, qw = desired_pose[3:7]
+
+            joint_solution = self.compute_ik(
+                x, y, z, qx, qy, qz, qw,
+                seed_joint_state=prev_ik_solution,
+            )
+
+            if joint_solution is None:
+                self.get_logger().error(
+                    f"IK failed at waypoint {i+1}/{num_waypoints} "
+                    f"(t={t:.2f}s)"
+                )
+                return None
+
+            raw_positions = extract_joint_positions(joint_solution)
+
+            if prev_positions is not None:
+                positions = unwrap_joint_angles(prev_positions, raw_positions)
+            else:
+                positions = raw_positions
+
+            # Warn on large jumps
+            if prev_positions is not None:
+                max_jump = np.max(np.abs(positions - prev_positions))
+                if max_jump > 0.5:
+                    self.get_logger().warn(
+                        f"  Large joint jump at waypoint {i}: "
+                        f"max delta = {max_jump:.3f} rad"
+                    )
+
+            all_positions.append(positions)
+
+            # Update seed with unwrapped positions
+            seed_msg = JointState()
+            seed_msg.name = list(JOINT_NAMES)
+            seed_msg.position = positions.tolist()
+            prev_ik_solution = seed_msg
+            prev_positions = positions
+
+            if (i + 1) % 10 == 0 or i == 0:
+                self.get_logger().info(
+                    f"  Waypoint {i+1}/{num_waypoints} OK "
+                    f"(j6={positions[5]:.3f} rad)"
+                )
+
+        # Skip the t=0 waypoint and offset times so the controller
+        # has time to start tracking before the first real waypoint.
+        TIME_OFFSET = 0.5
+
+        for i in range(1, len(times)):
+            t = times[i] + TIME_OFFSET
+            positions = all_positions[i]
+
+            point = JointTrajectoryPoint()
+            point.positions = positions.tolist()
+            point.velocities = [0.0] * 6
+            point.time_from_start.sec = int(t)
+            point.time_from_start.nanosec = int((t - int(t)) * 1e9)
+            joint_traj.points.append(point)
+
+        # Compute velocities via finite differences
+        for i in range(len(joint_traj.points)):
+            if i == 0 and len(joint_traj.points) > 1:
+                dt = self._time_diff(joint_traj.points[1], joint_traj.points[0])
+                if dt > 0:
+                    dp = np.array(joint_traj.points[1].positions) - \
+                         np.array(joint_traj.points[0].positions)
+                    joint_traj.points[i].velocities = list(dp / dt)
+            elif i == len(joint_traj.points) - 1:
+                dt = self._time_diff(joint_traj.points[i], joint_traj.points[i-1])
+                if dt > 0:
+                    dp = np.array(joint_traj.points[i].positions) - \
+                         np.array(joint_traj.points[i-1].positions)
+                    joint_traj.points[i].velocities = list(dp / dt)
+            elif 0 < i < len(joint_traj.points) - 1:
+                dt = self._time_diff(joint_traj.points[i+1], joint_traj.points[i-1])
+                if dt > 0:
+                    dp = np.array(joint_traj.points[i+1].positions) - \
+                         np.array(joint_traj.points[i-1].positions)
+                    joint_traj.points[i].velocities = list(dp / dt)
+
+        max_vel = max(max(abs(v) for v in pt.velocities) for pt in joint_traj.points)
+        self.get_logger().info(f"Max joint velocity: {max_vel:.3f} rad/s")
+
+        return joint_traj
+
+    @staticmethod
+    def _time_diff(point_a, point_b):
+        return (point_a.time_from_start.sec - point_b.time_from_start.sec) + \
+               (point_a.time_from_start.nanosec - point_b.time_from_start.nanosec) * 1e-9
+
+    # ------------------------------------------------------------------
     # Trajectory execution with image capture
     # ------------------------------------------------------------------
 
     def _move_to_start(self, trajectory: ScanOrbitTrajectory):
-        """
-        Move the robot to the first waypoint of the scan orbit using
-        a short linear trajectory. This avoids a sudden jump.
-        """
+        """Move to the first waypoint of the scan orbit via a linear move."""
         start_pose = trajectory.target_pose(0.0)
         sx, sy, sz = start_pose[:3]
-        qx, qy, qz, qw = start_pose[3:]
 
         self.get_logger().info(
             f"Moving to scan start: ({sx:.3f}, {sy:.3f}, {sz:.3f})"
         )
 
-        # Get current wrist position for the linear move
         try:
             tf = self.tf_buffer.lookup_transform(
                 'base_link', 'wrist_3_link', rclpy.time.Time()
@@ -304,24 +414,18 @@ class DishScanner(Node):
             return
 
         approach = LinearTrajectory(current_pos, np.array([sx, sy, sz]), total_time=5.0)
-        self.trajectory_controller.execute_trajectory(
-            approach,
-            compute_ik_fn=self.compute_ik,
-            num_waypoints=50,
-        )
-        self.get_logger().info("Reached scan start position")
+
+        # Build the approach joint trajectory with the same fixed IK pipeline
+        approach_traj = self._build_joint_trajectory(approach, num_waypoints=20)
+        if approach_traj is not None:
+            self.trajectory_controller.execute_joint_trajectory(approach_traj)
+            self.get_logger().info("Reached scan start position")
+        else:
+            self.get_logger().error("Failed to build approach trajectory")
 
     def execute_scan(self, trajectory: ScanOrbitTrajectory):
         """
-        Execute the scan orbit.
-
-        Hooks into UR7eTrajectoryController.execute_trajectory the same way
-        main.py does, but additionally calls camera_capture.tick() at each
-        waypoint so images are saved at the right angles.
-
-        If UR7eTrajectoryController exposes an on_waypoint callback, use it.
-        Otherwise we fall back to a parallel timer thread that polls elapsed
-        time and ticks the capture logic independently.
+        Execute the scan orbit with image capture.
         """
         # Schedule image captures at angularly-uniform times
         capture_times = trajectory.capture_times(self.args.n_images)
@@ -333,41 +437,31 @@ class DishScanner(Node):
             f"(radius={self.args.radius}m, height={self.args.height}m)"
         )
 
-        # --- Approach A: controller supports an on_waypoint hook -------
-        # Uncomment this block and remove Approach B if your
-        # UR7eTrajectoryController accepts an on_waypoint_fn callback.
-        #
-        # self.trajectory_controller.execute_trajectory(
-        #     trajectory,
-        #     compute_ik_fn=self.compute_ik,
-        #     num_waypoints=200,
-        #     on_waypoint_fn=lambda elapsed: self.camera_capture.tick(elapsed),
-        # )
+        # Build the orbit joint trajectory
+        self.get_logger().info("Computing orbit joint trajectory...")
+        joint_traj = self._build_joint_trajectory(trajectory, num_waypoints=80)
+        if joint_traj is None:
+            self.get_logger().error("Failed to build orbit trajectory — aborting scan")
+            return
 
-        # --- Approach B: parallel capture thread -----------------------
-        # Runs a background thread that ticks the capture logic while the
-        # trajectory controller blocks the main thread.
+        # Parallel capture thread (same approach as original)
         start_event = threading.Event()
         stop_event = threading.Event()
 
         def capture_thread():
-            start_event.wait()   # wait until trajectory actually starts
+            start_event.wait()
             t0 = time.time()
             while not stop_event.is_set():
                 elapsed = time.time() - t0
                 self.camera_capture.tick(elapsed)
-                time.sleep(0.05)   # 20 Hz polling — fast enough for any orbit speed
+                time.sleep(0.05)
 
         thread = threading.Thread(target=capture_thread, daemon=True)
         thread.start()
-        start_event.set()   # signal thread to start the clock
+        start_event.set()
 
         try:
-            self.trajectory_controller.execute_trajectory(
-                trajectory,
-                compute_ik_fn=self.compute_ik,
-                num_waypoints=200,
-            )
+            self.trajectory_controller.execute_joint_trajectory(joint_traj)
         finally:
             stop_event.set()
             thread.join(timeout=2.0)
@@ -377,7 +471,6 @@ class DishScanner(Node):
     # ------------------------------------------------------------------
 
     def run(self):
-        # 1. Detect dish position from AR tag
         self.get_logger().info(f"Looking up AR tag {self.args.ar_marker}...")
         dish_pos = self.lookup_ar_tag(self.args.ar_marker, timeout=10.0)
 
@@ -387,7 +480,6 @@ class DishScanner(Node):
 
         self.get_logger().info(f"Dish position (base_link): {dish_pos.round(3)}")
 
-        # 2. Build scan orbit around the detected dish position
         trajectory = ScanOrbitTrajectory(
             dish_position=dish_pos,
             radius=self.args.radius,
@@ -395,7 +487,6 @@ class DishScanner(Node):
             total_time=self.args.total_time,
         )
 
-        # 3. Confirm before moving
         self.get_logger().info(
             f"\n=== Scan plan ===\n"
             f"  Dish:       {dish_pos.round(3)}\n"
@@ -413,13 +504,9 @@ class DishScanner(Node):
                 break
             rclpy.spin_once(self, timeout_sec=0.1)
 
-        # 4. Move to orbit start position
         self._move_to_start(trajectory)
-
-        # 5. Execute the scan orbit with image capture
         self.execute_scan(trajectory)
 
-        # 6. Report results
         self.get_logger().info(
             f"\n=== Scan complete ===\n"
             f"  Images saved:  {self.camera_capture.saved_count}\n"
@@ -448,8 +535,6 @@ class DishScanner(Node):
             f"  Open Meshroom, drag-and-drop all images from:\n"
             f"      {out}\n"
             f"  then click 'Start'.\n"
-            f"\nOption 3 — Open3D (Python, simple point cloud):\n"
-            f"  See the commented script at the bottom of dish_scanner.py\n"
         )
 
 
@@ -459,19 +544,12 @@ class DishScanner(Node):
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='Dish scanner for 3D plating reconstruction')
-    parser.add_argument('--ar_marker', type=int, default=0,
-                        help='AR marker ID placed at/near the dish center')
-    parser.add_argument('--radius', type=float, default=0.18,
-                        help='Orbit radius in meters (default: 0.18)')
-    parser.add_argument('--height', type=float, default=0.28,
-                        help='Orbit height above the dish in meters (default: 0.28)')
-    parser.add_argument('--total_time', type=float, default=20.0,
-                        help='Total scan duration in seconds (default: 20.0). '
-                             'Slower is better — gives the camera time to settle.')
-    parser.add_argument('--n_images', type=int, default=36,
-                        help='Number of images to capture (default: 36, i.e. every 10°)')
-    parser.add_argument('--output_dir', type=str, default=None,
-                        help='Directory to save images. Defaults to ~/dish_scans/scan_<timestamp>')
+    parser.add_argument('--ar_marker', type=int, default=0)
+    parser.add_argument('--radius', type=float, default=0.18)
+    parser.add_argument('--height', type=float, default=0.28)
+    parser.add_argument('--total_time', type=float, default=20.0)
+    parser.add_argument('--n_images', type=int, default=36)
+    parser.add_argument('--output_dir', type=str, default=None)
     parsed_args = parser.parse_args()
 
     rclpy.init(args=args)
@@ -488,32 +566,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
-
-# ---------------------------------------------------------------------------
-# Optional: quick Open3D point cloud from saved images
-# Run this separately after the scan, not during ROS execution.
-# ---------------------------------------------------------------------------
-#
-# import open3d as o3d
-# from pathlib import Path
-#
-# def build_point_cloud(image_dir: str):
-#     """
-#     Minimal example using Open3D's tensor-based pipeline.
-#     For best results use COLMAP or Meshroom instead.
-#     """
-#     image_dir = Path(image_dir)
-#     images = sorted(image_dir.glob("*.jpg"))
-#     print(f"Found {len(images)} images in {image_dir}")
-#
-#     # Open3D RGBD reconstruction requires pre-computed camera poses.
-#     # The easiest path is to run COLMAP first to get poses, then use
-#     # Open3D for meshing / colorisation.
-#     #
-#     # Quick sanity check — just display the first image:
-#     import cv2
-#     img = cv2.imread(str(images[0]))
-#     cv2.imshow("First scan image", img)
-#     cv2.waitKey(0)
-#     cv2.destroyAllWindows()
