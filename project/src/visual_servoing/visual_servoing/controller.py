@@ -92,12 +92,40 @@ class UR7eTrajectoryController:
         bool
             True if trajectory execution succeeded, False otherwise
         """
+        from control_msgs.msg import JointTolerance
 
         self.node.get_logger().info('Waiting for trajectory controller...')
         self.trajectory_client.wait_for_server()
 
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = joint_trajectory
+
+        # --- FIX: Set tolerances so the UR driver doesn't abort on minor
+        # tracking errors during dense multi-waypoint trajectories. ---
+        # The default tolerances are very tight; with 80 waypoints the
+        # robot can easily fall slightly behind the timing and trip an
+        # abort. These values are generous enough for smooth motion while
+        # still catching real problems.
+        for joint_name in joint_trajectory.joint_names:
+            tol = JointTolerance()
+            tol.name = joint_name
+            tol.position = 0.2       # rad — path tracking tolerance
+            tol.velocity = 0.0       # 0 = don't check velocity
+            tol.acceleration = 0.0   # 0 = don't check acceleration
+            goal.path_tolerance.append(tol)
+
+            goal_tol = JointTolerance()
+            goal_tol.name = joint_name
+            goal_tol.position = 0.05  # rad — must be close at the end
+            goal_tol.velocity = 0.0
+            goal_tol.acceleration = 0.0
+            goal.goal_tolerance.append(goal_tol)
+
+        # Give extra time to reach the final position after the trajectory
+        # timing runs out.  Without this the controller may report failure
+        # even though the robot is still converging to the last waypoint.
+        goal.goal_time_tolerance.sec = 2
+        goal.goal_time_tolerance.nanosec = 0
 
         self.node.get_logger().info('Sending trajectory to controller...')
         send_future = self.trajectory_client.send_goal_async(goal)
