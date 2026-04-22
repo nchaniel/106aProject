@@ -36,12 +36,28 @@ class UR7e_CubeGrasp(Node):
         self.ik_planner = IKPlanner()
 
         self.job_queue = [] # Entries should be of type either JointState or String('toggle_grip')
+        self.obs_pose_done = False
 
     def joint_state_callback(self, msg: JointState):
         self.joint_state = msg
+        if not self.obs_pose_done and not hasattr(self, '_obs_triggered'):
+            self._obs_triggered = True
+            obs_joints = self.ik_planner.compute_ik(
+                self.joint_state, 0.13, 0.474, 0.619,
+                qx=0.002, qy=1.00, qz=-0.003, qw=-0.011
+            )
+            if obs_joints:
+                self.job_queue.append(obs_joints)
+                self.execute_jobs()
+            else:
+                self.get_logger().error("IK failed for observation pose")
 
     def cube_callback(self, cube_pose):
         if self.cube_pose is not None:
+            return
+
+        if not self.obs_pose_done:
+            self.get_logger().info("Obs pose not complete, skipping cube detection")
             return
 
         if self.joint_state is None:
@@ -98,6 +114,10 @@ class UR7e_CubeGrasp(Node):
 
     def execute_jobs(self):
         if not self.job_queue:
+            if not self.obs_pose_done:
+                self.obs_pose_done = True
+                self.get_logger().info("Observation pose reached. Waiting for cube detection...")
+                return
             self.get_logger().info("All jobs completed.")
             rclpy.shutdown()
             return
