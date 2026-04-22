@@ -26,7 +26,7 @@ class YOLODetector:
                 - bbox = [x1, y1, x2, y2]
                 - center = [cx, cy]
         """
-        results = self.model(image)
+        results = self.model(image, verbose=False)
 
         detections = []
 
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     import cv2
 
     current_dir = Path(__file__).resolve().parent
-    image_path = current_dir / "test_images" / "test4.jpg"
+    image_path = current_dir / "test_images" / "test6.jpg"
 
     print(f"Trying to read image from: {image_path}")
 
