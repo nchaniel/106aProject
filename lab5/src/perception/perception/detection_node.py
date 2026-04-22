@@ -32,7 +32,7 @@ class DetectionNode(Node):
         self.declare_parameter("model_path", "yolov8n.pt")
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("show_image", True)
-        self.declare_parameter("target_frame", "base")
+        self.declare_parameter("target_frame", "base_link")
         self.declare_parameter("depth_scale", 0.001)   # uint16 mm -> meters
         self.declare_parameter("depth_window_size", 5)
 
