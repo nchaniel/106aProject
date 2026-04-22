@@ -1,93 +1,128 @@
-from ultralytics import YOLO
-import cv2
+import numpy as np
+import rclpy
+from geometry_msgs.msg import PointStamped
+from tf2_geometry_msgs import do_transform_point
 
 
-class YOLODetector:
-    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.5):
-        """
-        model_path: path to YOLO model weights
-        conf_threshold: minimum confidence to keep a detection
-        """
-        self.model = YOLO(model_path)
-        self.conf_threshold = conf_threshold
+def bbox_center(bbox):
+    """
+    Compute the pixel center of a bounding box.
 
-    def detect(self, image):
-        """
-        Runs YOLO on an OpenCV image.
+    Args:
+        bbox: [x1, y1, x2, y2]
 
-        Args:
-            image: OpenCV image (numpy array, BGR format)
+    Returns:
+        (u, v): integer pixel coordinates
+    """
+    x1, y1, x2, y2 = bbox
+    u = int((x1 + x2) / 2.0)
+    v = int((y1 + y2) / 2.0)
+    return u, v
 
-        Returns:
-            detections: list of dictionaries, each containing:
-                - class_id
-                - class_name
-                - confidence
-                - bbox = [x1, y1, x2, y2]
-                - center = [cx, cy]
-        """
-        results = self.model(image)
 
-        detections = []
+def get_depth_at_pixel_window(depth_image, u, v, window_size=5, depth_scale=0.001):
+    """
+    Get a robust depth estimate near pixel (u, v) using a small window.
 
-        for result in results:
-            for box in result.boxes:
-                conf = float(box.conf[0])
-                if conf < self.conf_threshold:
-                    continue
+    Args:
+        depth_image: numpy depth image
+        u, v: pixel coordinates
+        window_size: odd integer window size
+        depth_scale:
+            0.001 if depth image is uint16 in millimeters
+            1.0   if depth image is already float32 in meters
 
-                class_id = int(box.cls[0])
-                class_name = result.names[class_id]
+    Returns:
+        depth_meters or None if no valid depth found
+    """
+    if depth_image is None:
+        return None
 
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+    h, w = depth_image.shape[:2]
 
-                cx = int((x1 + x2) / 2)
-                cy = int((y1 + y2) / 2)
+    if u < 0 or u >= w or v < 0 or v >= h:
+        return None
 
-                detections.append({
-                    "class_id": class_id,
-                    "class_name": class_name,
-                    "confidence": conf,
-                    "bbox": [x1, y1, x2, y2],
-                    "center": [cx, cy]
-                })
+    half = window_size // 2
 
-        return detections
-    
-    def draw_detections(self, image, detections):
-        """
-        Draws bounding boxes and labels on a copy of the image.
-        """
-        output = image.copy()
+    u_min = max(0, u - half)
+    u_max = min(w, u + half + 1)
+    v_min = max(0, v - half)
+    v_max = min(h, v + half + 1)
 
-        for det in detections:
-            x1, y1, x2, y2 = det["bbox"]
-            class_name = det["class_name"]
-            conf = det["confidence"]
-            cx, cy = det["center"]
+    patch = depth_image[v_min:v_max, u_min:u_max]
 
-            cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.circle(output, (cx, cy), 4, (0, 0, 255), -1)
+    # Only keep valid positive depth values
+    valid = patch[patch > 0]
 
-            label = f"{class_name}: {conf:.2f}"
-            cv2.putText(output, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    if valid.size == 0:
+        return None
 
-        return output
-    
-if __name__ == "__main__":
-    image_path = current_dir.parent / "test_images / "test1.jpg"
-    image = cv2.imread(image_path)
+    depth_raw = np.median(valid)
+    depth_meters = float(depth_raw) * depth_scale
+    return depth_meters
 
-    detector = YOLODetector(model_path="yolov8n.pt", conf_threshold=0.5)
-    detections = detector.detect(image)
 
-    print("Detections:")
-    for det in detections:
-        print(det)
+def pixel_to_camera_xyz(u, v, depth, camera_info):
+    """
+    Back-project a pixel with depth into 3D camera coordinates.
 
-    vis_image = detector.draw_detections(image, detections)
-    cv2.imshow("YOLO Detections", vis_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    Using CameraInfo.k:
+        [fx,  0, cx,
+         0, fy, cy,
+         0,  0,  1]
+
+    Args:
+        u, v: pixel coordinates
+        depth: depth in meters
+        camera_info: sensor_msgs.msg.CameraInfo
+
+    Returns:
+        (x, y, z) in camera frame
+    """
+    fx = camera_info.k[0]
+    fy = camera_info.k[4]
+    cx = camera_info.k[2]
+    cy = camera_info.k[5]
+
+    if fx == 0.0 or fy == 0.0:
+        raise ValueError("Camera intrinsics invalid: fx or fy is zero")
+
+    x = (u - cx) * depth / fx
+    y = (v - cy) * depth / fy
+    z = depth
+
+    return x, y, z
+
+
+def make_point_stamped(x, y, z, frame_id, stamp):
+    """
+    Create a PointStamped message.
+    """
+    pt = PointStamped()
+    pt.header.frame_id = frame_id
+    pt.header.stamp = stamp
+    pt.point.x = float(x)
+    pt.point.y = float(y)
+    pt.point.z = float(z)
+    return pt
+
+
+def transform_point(tf_buffer, point_stamped, target_frame):
+    """
+    Transform a PointStamped into target_frame.
+
+    Args:
+        tf_buffer: tf2_ros.Buffer
+        point_stamped: geometry_msgs.msg.PointStamped
+        target_frame: target frame name, e.g. 'base'
+
+    Returns:
+        transformed PointStamped
+    """
+    transform = tf_buffer.lookup_transform(
+        target_frame,
+        point_stamped.header.frame_id,
+        rclpy.time.Time()
+    )
+    return do_transform_point(point_stamped, transform)
