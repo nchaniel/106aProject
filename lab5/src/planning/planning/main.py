@@ -19,7 +19,7 @@ class UR7e_CubeGrasp(Node):
     def __init__(self):
         super().__init__('cube_grasp')
 
-        self.cube_pub = self.create_subscription(PointStamped, '/cube_pose', self.cube_callback, 1)
+        self.cube_pub = self.create_subscription(PointStamped, '/detected_pick_point', self.cube_callback, 1)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
 
         self.exec_ac = ActionClient(
