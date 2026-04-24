@@ -27,9 +27,15 @@ class ConstantTransformPublisher(Node):
 
         
 
-        #Frame IDs tell where ROS which part of the robot camera is attached to
+        # Frame IDs tell ROS which part of the robot the camera is attached to.
+        # IMPORTANT: child_frame_id must be `camera_link` (the ROOT of the RealSense
+        # TF sub-tree), NOT an optical frame. RealSense already publishes
+        # `camera_link -> camera_{color,depth}_optical_frame` as static transforms,
+        # and every frame can only have ONE parent. Publishing to an optical frame
+        # here creates a parent conflict and TF2 ends up with two disconnected trees
+        # (the UR tree rooted at base_link, and the camera tree rooted at camera_link).
         self.transform.header.frame_id = "wrist_3_link"
-        self.transform.child_frame_id = "camera_depth_optical_frame"
+        self.transform.child_frame_id = "camera_link"
 
         #Translate the offset between the camera and the end effector
         self.transform.transform.translation.x = G[0, 3]
