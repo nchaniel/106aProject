@@ -97,53 +97,53 @@ class UR7e_CubeGrasp(Node):
             cz + pre_grasp_z_offset
         )
 
-        # 2. Move down to grasp object
-        grasp_joints = self.ik_planner.compute_ik(
-            self.joint_state,
-            cx + x_offset,
-            cy,
-            cz + grasp_z_offset
-        )
+        # # 2. Move down to grasp object
+        # grasp_joints = self.ik_planner.compute_ik(
+        #     self.joint_state,
+        #     cx + x_offset,
+        #     cy,
+        #     cz + grasp_z_offset
+        # )
 
-        # 3. Lift after grasping
-        lift_joints = self.ik_planner.compute_ik(
-            self.joint_state,
-            cx + x_offset,
-            cy,
-            cz + lift_z_offset
-        )
+        # # 3. Lift after grasping
+        # lift_joints = self.ik_planner.compute_ik(
+        #     self.joint_state,
+        #     cx + x_offset,
+        #     cy,
+        #     cz + lift_z_offset
+        # )
 
-        # 4. Move above drop location
-        drop_pre_joints = self.ik_planner.compute_ik(
-            self.joint_state,
-            drop_x,
-            drop_y,
-            drop_z + 0.12
-        )
+        # # 4. Move above drop location
+        # drop_pre_joints = self.ik_planner.compute_ik(
+        #     self.joint_state,
+        #     drop_x,
+        #     drop_y,
+        #     drop_z + 0.12
+        # )
 
-        # 5. Move down to drop location
-        drop_joints = self.ik_planner.compute_ik(
-            self.joint_state,
-            drop_x,
-            drop_y,
-            drop_z
-        )
+        # # 5. Move down to drop location
+        # drop_joints = self.ik_planner.compute_ik(
+        #     self.joint_state,
+        #     drop_x,
+        #     drop_y,
+        #     drop_z
+        # )
 
-        # Check IK success before queueing
-        if not all([pre_grasp_joints, grasp_joints, lift_joints, drop_pre_joints, drop_joints]):
-            self.get_logger().error("IK failed for one or more pick/place poses")
-            self.busy = False
-            self.cube_pose = None
-            return
+        # # Check IK success before queueing
+        # if not all([pre_grasp_joints, grasp_joints, lift_joints, drop_pre_joints, drop_joints]):
+        #     self.get_logger().error("IK failed for one or more pick/place poses")
+        #     self.busy = False
+        #     self.cube_pose = None
+        #     return
 
         self.job_queue.append(pre_grasp_joints)
-        self.job_queue.append(grasp_joints)
-        self.job_queue.append("toggle_grip")
-        self.job_queue.append(lift_joints)
-        self.job_queue.append(drop_pre_joints)
-        self.job_queue.append(drop_joints)
-        self.job_queue.append("toggle_grip")
-        self.job_queue.append(drop_pre_joints)
+        # self.job_queue.append(grasp_joints)
+        # self.job_queue.append("toggle_grip")
+        # self.job_queue.append(lift_joints)
+        # self.job_queue.append(drop_pre_joints)
+        # self.job_queue.append(drop_joints)
+        # self.job_queue.append("toggle_grip")
+        # self.job_queue.append(drop_pre_joints)
 
         self.execute_jobs()
 
