@@ -28,7 +28,8 @@ class UR7e_CubeGrasp(Node):
         )
 
         self.gripper_cli = self.create_client(Trigger, '/toggle_gripper')
-
+        
+        self.busy = False
         self.cube_pose = None
         self.current_plan = None
         self.joint_state = None
@@ -52,62 +53,97 @@ class UR7e_CubeGrasp(Node):
             else:
                 self.get_logger().error("IK failed for observation pose")
 
-    def cube_callback(self, cube_pose):
-        if self.cube_pose is not None:
+    def cube_callback(self, pick_pose):
+        # Ignore new detections while already executing a pick/place
+        if self.cube_pose is not None or getattr(self, "busy", False):
             return
 
         if not self.obs_pose_done:
-            self.get_logger().info("Obs pose not complete, skipping cube detection")
+            self.get_logger().info("Observation pose not complete, skipping detection")
             return
 
         if self.joint_state is None:
             self.get_logger().info("No joint state yet, cannot proceed")
             return
 
-        self.cube_pose = cube_pose
-        # Extract base coordinates of the cube
-        cx = self.cube_pose.point.x
-        cy = self.cube_pose.point.y
-        cz = self.cube_pose.point.z
+        self.busy = True
+        self.cube_pose = pick_pose
 
-        # -----------------------------------------------------------
-        # TODO: In the following section you will add joint angles to the job queue. 
-        # Entries of the job queue should be of type either JointState or String('toggle_grip')
-        # Think about you will leverage the IK planner to get joint configurations for the cube grasping task.
-        # To understand how the queue works, refer to the execute_jobs() function below.
-        # -----------------------------------------------------------
+        # Detected point in base_link frame
+        cx = pick_pose.point.x
+        cy = pick_pose.point.y
+        cz = pick_pose.point.z
 
-        # 1) Move to Pre-Grasp Position (gripper above the cube)
-        '''
-        Use the following offsets for pre-grasp position:
-        z offset: +0.185 (to be above the cube by accounting for gripper length)
-        '''
-        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx-0.015, cy, cz + 0.185)
+        self.get_logger().info(
+            f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f}"
+        )
+
+        # Safety offsets
+        x_offset = -0.015
+        pre_grasp_z_offset = 0.185
+        grasp_z_offset = 0.092
+        lift_z_offset = 0.185
+
+        # Fixed drop-off location for v1
+        drop_x = 0.45
+        drop_y = 0.20
+        drop_z = 0.20
+
+        # 1. Move above detected object
+        pre_grasp_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            cx + x_offset,
+            cy,
+            cz + pre_grasp_z_offset
+        )
+
+        # 2. Move down to grasp object
+        grasp_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            cx + x_offset,
+            cy,
+            cz + grasp_z_offset
+        )
+
+        # 3. Lift after grasping
+        lift_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            cx + x_offset,
+            cy,
+            cz + lift_z_offset
+        )
+
+        # 4. Move above drop location
+        drop_pre_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            drop_x,
+            drop_y,
+            drop_z + 0.12
+        )
+
+        # 5. Move down to drop location
+        drop_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            drop_x,
+            drop_y,
+            drop_z
+        )
+
+        # Check IK success before queueing
+        if not all([pre_grasp_joints, grasp_joints, lift_joints, drop_pre_joints, drop_joints]):
+            self.get_logger().error("IK failed for one or more pick/place poses")
+            self.busy = False
+            self.cube_pose = None
+            return
+
         self.job_queue.append(pre_grasp_joints)
-
-        # 2) Move to Grasp Position (lower the gripper to the cube)
-        '''
-        Note that this will again be defined relative to the cube pose. 
-        DO NOT CHANGE z offset lower than +0.14. 
-        '''
-        grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx-0.015, cy, cz + 0.092) #we changed it so it would work
         self.job_queue.append(grasp_joints)
-
-        # 3) Close the gripper. See job_queue entries defined in init above for how to add this action.
-        self.job_queue.append('toggle_grip')
-        
-        # 4) Move back to Pre-Grasp Position
-        self.job_queue.append(pre_grasp_joints)
-        # 5) Move to release Position
-        '''
-        We want the release position to be 0.3m to the left of the initial cube pose.
-        Which offset will you change to achieve this and in what direction?
-        '''
-        release_joints = self.ik_planner.compute_ik(self.joint_state, cx + 0.3, cy, cz + 0.185)
-        self.job_queue.append(release_joints)
-
-        # 6) Release the gripper
-        self.job_queue.append('toggle_grip')
+        self.job_queue.append("toggle_grip")
+        self.job_queue.append(lift_joints)
+        self.job_queue.append(drop_pre_joints)
+        self.job_queue.append(drop_joints)
+        self.job_queue.append("toggle_grip")
+        self.job_queue.append(drop_pre_joints)
 
         self.execute_jobs()
 
