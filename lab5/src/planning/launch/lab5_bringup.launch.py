@@ -33,26 +33,10 @@ def generate_launch_description():
         ),
         launch_arguments={
             'pointcloud.enable': 'true',
-            'rgb_camera.color_profile': '640x480x30',
+            'rgb_camera.color_profile': '1280x720x30',
         }.items(),
     )
 
-    # UR robot driver (loads URDF into robot_state_publisher, publishes TF chain)
-    ur_control_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('ur_robot_driver'),
-                'launch',
-                'ur_control.launch.py'
-            )
-        ),
-        launch_arguments={
-            'ur_type': ur_type,
-            'robot_ip': robot_ip,
-            'launch_rviz': 'false',
-            'initial_joint_controller': 'scaled_joint_trajectory_controller',
-        }.items(),
-    )
 
     # Perception node
     perception_node = Node(
@@ -109,7 +93,6 @@ def generate_launch_description():
 
         # Actions
         realsense_launch,
-        ur_control_launch,
         perception_node,
         planning_tf_node,
         moveit_launch,
