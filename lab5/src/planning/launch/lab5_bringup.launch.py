@@ -3,7 +3,8 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, Regi
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -14,7 +15,9 @@ def generate_launch_description():
     # -------------------------
 
     ur_type = LaunchConfiguration("ur_type", default="ur7e")
-    launch_rviz = LaunchConfiguration("launch_rviz", default="true") # make false if you don't want rviz to launch when launching moveit
+    launch_rviz = LaunchConfiguration("launch_rviz", default="true")
+    robot_ip = LaunchConfiguration("robot_ip", default="192.168.1.102")
+    shutdown_on_exit = LaunchConfiguration("shutdown_on_exit", default="true")
 
     # -------------------------
     # Includes & Nodes
@@ -34,11 +37,28 @@ def generate_launch_description():
         }.items(),
     )
 
+    # UR robot driver (loads URDF into robot_state_publisher, publishes TF chain)
+    ur_control_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('ur_robot_driver'),
+                'launch',
+                'ur_control.launch.py'
+            )
+        ),
+        launch_arguments={
+            'ur_type': ur_type,
+            'robot_ip': robot_ip,
+            'launch_rviz': 'false',
+            'initial_joint_controller': 'scaled_joint_trajectory_controller',
+        }.items(),
+    )
+
     # Perception node
     perception_node = Node(
         package='perception',
-        executable='process_pointcloud',
-        name='process_pointcloud',
+        executable='detection_node',
+        name='detection_node',
         output='screen'
     )
 
@@ -73,12 +93,13 @@ def generate_launch_description():
     )
 
     # -------------------------
-    # Global shutdown on any process exit
+    # Global shutdown on any process exit (gated — disable with shutdown_on_exit:=false for debugging)
     # -------------------------
     shutdown_on_any_exit = RegisterEventHandler(
         OnProcessExit(
             on_exit=[EmitEvent(event=Shutdown(reason='A launched process exited'))]
-        )
+        ),
+        condition=IfCondition(shutdown_on_exit),
     )
 
     # -------------------------
@@ -88,6 +109,7 @@ def generate_launch_description():
 
         # Actions
         realsense_launch,
+        ur_control_launch,
         perception_node,
         planning_tf_node,
         moveit_launch,
