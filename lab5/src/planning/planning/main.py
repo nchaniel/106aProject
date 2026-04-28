@@ -59,11 +59,11 @@ class UR7e_CubeGrasp(Node):
             return
 
         if not self.obs_pose_done:
-            self.get_logger().info("Observation pose not complete, skipping detection")
+            self.get_logger().debug("Observation pose not complete, skipping detection")
             return
 
         if self.joint_state is None:
-            self.get_logger().info("No joint state yet, cannot proceed")
+            self.get_logger().debug("No joint state yet, cannot proceed")
             return
 
         self.busy = True
@@ -166,6 +166,9 @@ class UR7e_CubeGrasp(Node):
             traj = self.ik_planner.plan_to_joints(next_job)
             if traj is None:
                 self.get_logger().error("Failed to plan to position")
+                self.busy = False
+                self.cube_pose = None
+                self.job_queue.clear()
                 return
 
             self.get_logger().info("Planned to position")
@@ -202,7 +205,6 @@ class UR7e_CubeGrasp(Node):
 
         self.get_logger().info('Sending trajectory to controller...')
         send_future = self.exec_ac.send_goal_async(goal)
-        print(send_future)
         send_future.add_done_callback(self._on_goal_sent)
 
     def _on_goal_sent(self, future):
