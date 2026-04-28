@@ -22,6 +22,11 @@ import time
 import subprocess
 import logging
 
+#---------------------------------------------
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import cv2
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,10 +37,26 @@ from .controller import UR7eTrajectoryController, PIDJointVelocityController
 class VisualServo(Node):
     def __init__(self, args):
         super().__init__('visual_servo_node')
-
+        
         self.args = args
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # ---------------------------------------------------------
+        self.bridge = CvBridge()
+        self.latest_frame = None
+        self.images_saved = 0
+        self.num_images_to_take = args.num_images
+        self.capture_times = np.linspace(0, args.total_time, self.num_images_to_take)
+        self.photo_interval = 2
+        self.next_photo_time = 0
+        # Subscriber for the camera feed
+        self.image_sub = self.create_subscription(
+            Image,
+            '/camera/camera/color/image_raw',
+            self.image_callback,
+            10
+        )
 
         self.trajectory = None
         self.trajectory_start_time = None
@@ -75,6 +96,18 @@ class VisualServo(Node):
     def joint_state_callback(self, msg):
         """Store current joint state"""
         self.current_joint_state = msg
+
+    # -----------------------------------------
+    def image_callback(self, msg):
+        """Continually updates the latest frame from the camera feed"""
+        self.latest_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+    def take_picture(self, filename='captured_image.jpg'):
+        if self.latest_frame is not None:
+            filename = f'capture_{self.images_saved + 1}.jpg'
+            cv2.imwrite(filename, self.latest_frame)
+            self.get_logger().info(f'Saved: {filename}')
+            self.images_saved += 1
 
     def compute_ik(self, x, y, z, qx=0.0, qy=1.0, qz=0.0, qw=0.0):
         """
@@ -354,6 +387,24 @@ class VisualServo(Node):
 
         self._execute_joint_trajectory(joint_traj)
 
+        #----------------------------------------------------------
+        start_time = self.get_clock().now().nanoseconds / 1e9
+        self.next_photo_time = 0.0 # Reset for the start of the run 
+
+        while rclpy.ok():
+            current_time = self.get_clock().now().nanoseconds / 1e9
+            elapsed_time = current_time - start_time
+
+            # Check if it is time to take a photo
+            if elapsed_time >= self.next_photo_time:
+                self.take_photo(elapsed_time)
+                self.next_photo_time += self.photo_interval
+
+            # ... existing trajectory movement logic (IK and publishing) ...
+            
+            if elapsed_time >= self.args.total_time:
+                break
+
     def _move_to_start(self, start_positions):
         """
         Move robot to the start position of the trajectory.
@@ -631,6 +682,8 @@ def main(args=None):
     parser.add_argument('--controller', '-c', type=str, default='default',
                        choices=['default', 'pid'],
                        help='Controller type: trajectory (default), pid')
+    parser.add_argument('--num_images', type=int, default=10,
+                       help='Number of images to capture during trajectory')
 
     parsed_args = parser.parse_args()
 
