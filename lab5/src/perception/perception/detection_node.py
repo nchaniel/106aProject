@@ -161,17 +161,17 @@ class DetectionNode(Node):
         # Run YOLO
         detections = self.detector.detect(cv_image)
 
-        self.get_logger().info(f"Number of detections: {len(detections)}")
+        self.get_logger().debug(f"Number of detections: {len(detections)}")
 
         if self.camera_info is None:
-            self.get_logger().warn("No CameraInfo yet; cannot convert detections to 3D")
+            self.get_logger().debug("No CameraInfo yet; cannot convert detections to 3D")
         if self.depth_image is None:
-            self.get_logger().warn("No depth image yet; cannot convert detections to 3D")
+            self.get_logger().debug("No depth image yet; cannot convert detections to 3D")
 
         best_pick_point = None
 
         for det in detections:
-            self.get_logger().info(
+            self.get_logger().debug(
                 f"class={det['class_name']}, "
                 f"conf={det['confidence']:.2f}, "
                 f"center={det['center']}, "
@@ -225,7 +225,7 @@ class DetectionNode(Node):
                     self.target_frame
                 )
 
-                self.get_logger().info(
+                self.get_logger().debug(
                     f"[3D] {det['class_name']} | "
                     f"pixel=({u}, {v}) | "
                     f"depth={depth_m:.3f} m | "
@@ -250,7 +250,7 @@ class DetectionNode(Node):
         if best_pick_point is not None:
             _, pt = best_pick_point
             self.pick_point_pub.publish(pt)
-            self.get_logger().info(
+            self.get_logger().debug(
                 f"Published pick point in {self.target_frame}: "
                 f"({pt.point.x:.3f}, {pt.point.y:.3f}, {pt.point.z:.3f})"
             )

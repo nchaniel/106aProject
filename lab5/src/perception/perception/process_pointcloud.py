@@ -38,7 +38,7 @@ class RealSensePCSubscriber(Node):
         self.get_logger().info("Subscribed to PointCloud2 topic and marker publisher ready")
 
     def pointcloud_callback(self, msg: PointCloud2):
-        self.get_logger().info("1. Message received from camera")
+        self.get_logger().debug("1. Message received from camera")
         # Transform the pointcloud from its original frame to base_link
         # Lookup Transform and use library function to transform cloud
 
@@ -49,7 +49,7 @@ class RealSensePCSubscriber(Node):
         try:
             
             tf = self.tf_buffer.lookup_transform(self.target_frame, source_frame, Time()) # the entire tf lookup params should be filled in
-            self.get_logger().info("2. Transform found")
+            self.get_logger().debug("2. Transform found")
         except TransformException as ex:
             self.get_logger().warn(f'3. TF Failure: {ex}')
             return
@@ -67,7 +67,7 @@ class RealSensePCSubscriber(Node):
                 (raw_points['x'], raw_points['y'], raw_points['z'])
             ).astype(np.float32, copy=False)
 
-        self.get_logger().info(f"4. Filtering {len(points_base)} points")
+        self.get_logger().debug(f"4. Filtering {len(points_base)} points")
         # TODO: Create masks based on the specified min, max y and z parameters above in order to filter points
 
         #points base gives us all the z coordinates, and we make sure they fall within max and min z
@@ -82,7 +82,7 @@ class RealSensePCSubscriber(Node):
             self.get_logger().warn("5. Filter killed everything!")
             return
 
-        self.get_logger().info("6. Publishing data!")
+        self.get_logger().debug("6. Publishing data!")
         filtered_cloud = pc2.create_cloud_xyz32(
             transformed_cloud.header,
             filtered_points.tolist(),
