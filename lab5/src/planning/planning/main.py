@@ -90,9 +90,9 @@ class UR7e_CubeGrasp(Node):
         drop_y = 0.20
         drop_z = 0.20
 
+        
         # 1. Move above detected object
-        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx + x_offset, cy, cz + pre_grasp_z_offset
-        )
+        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx, cy, cz)
 
         # # 2. Move down to grasp object
         # grasp_joints = self.ik_planner.compute_ik(
@@ -160,7 +160,7 @@ class UR7e_CubeGrasp(Node):
 
         if isinstance(next_job, JointState):
 
-            traj = self.ik_planner.plan_to_joints(next_job)
+            traj = self.ik_planner.plan_to_joints(next_job, start_joint_state=self.joint_state)
             if traj is None:
                 self.get_logger().error("Failed to plan to position")
                 self.busy = False

@@ -14,8 +14,8 @@ class ConstantTransformPublisher(Node):
         # Homogeneous transform G_wrist_3_link->camera_depth_optical
         # Rotation: 180° around x-axis — keeps x correct, negates y (fixes left/right) and z (fixes up/down)
         G = np.array([[1,  0,  0, -0.025],
-                      [0, -1,  0,  0.13],
-                      [0,  0, -1,  0.0],
+                      [0, 1,  0,  0.13],
+                      [0,  0, 1,  0.0],
                       [0,  0,  0,  1.0]
         ])
 
