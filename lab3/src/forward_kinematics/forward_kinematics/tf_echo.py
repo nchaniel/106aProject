@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import rclpy
 import sys
 from rclpy.node import Node
@@ -65,3 +66,48 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+=======
+import tf2_ros
+import rclpy
+import sys
+from rclpy.node import Node
+
+class TF_Echo(Node):
+    # Here, we define the constructor
+    def __init__(self, source_frame, target_frame):
+        # We call the Node class's constructor and call it "minimal_publisher"
+        super().__init__('tf_echo')
+        self.source_frame = source_frame
+        self.target_frame = target_frame
+        self.tfBuffer = tf2_ros.Buffer()
+        self.tfListener = tf2_ros.TransformListener(self.tfBuffer, self)
+        
+        timer_period = 0.5  # seconds
+        self.timer = self.create_timer(timer_period, self.timer_callback)
+    
+    def timer_callback(self):
+        try:
+            trans = self.tfBuffer.lookup_transform(self.target_frame, self.source_frame, rclpy.time.Time())
+            vec = trans.transform.translation
+            rot = trans.transform.rotation
+
+            vec_lst = [round(n, 3) for n in [vec.x, vec.y, vec.z]]
+            rot_lst = [round(n,3) for n in [rot.x, rot.y, rot.z, rot.w]]
+
+            self.get_logger().info('echoing: \ntranslation: %s\nrotation: %s\n' % (str(vec_lst),str(rot_lst)))
+            self.get_logger().info('full output: \n%s\n' % str(trans))
+
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+            self.get_logger().info('error')
+
+def main(args=None):
+    rclpy.init(args=args)
+    target_frame, source_frame = sys.argv[1], sys.argv[2]
+    tf_echo = TF_Echo(source_frame, target_frame)
+    rclpy.spin(tf_echo)
+    tf_echo.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+>>>>>>> 0445bcc (Complete lab3)

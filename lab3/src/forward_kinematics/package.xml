@@ -4,7 +4,11 @@
   <name>forward_kinematics</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
+<<<<<<< HEAD
   <maintainer email="nathan.k.lam04@gmail.com">ee106a-abm</maintainer>
+=======
+  <maintainer email="christopher-mich_g@berkeley.edu">ee106a-abs</maintainer>
+>>>>>>> 0445bcc (Complete lab3)
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
