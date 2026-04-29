@@ -12,10 +12,11 @@ class ConstantTransformPublisher(Node):
         self.br = StaticTransformBroadcaster(self)
 
         # Homogeneous transform G_wrist_3_link->camera_depth_optical
-        G = np.array([[1, 0, 0, -0.025],
-                      [0, 1, 0, 0.13],
-                      [0, 0, 1, 0.0],
-                      [0, 0, 0, 1.0]
+        # Rotation: 180° around x-axis — keeps x correct, negates y (fixes left/right) and z (fixes up/down)
+        G = np.array([[1,  0,  0, -0.025],
+                      [0, -1,  0,  0.13],
+                      [0,  0, -1,  0.0],
+                      [0,  0,  0,  1.0]
         ])
 
         # Create TransformStamped
@@ -53,15 +54,10 @@ class ConstantTransformPublisher(Node):
         self.transform.transform.rotation.z = q[2]
         self.transform.transform.rotation.w = q[3]
 
-
-        self.get_logger().info(f"Broadcasting transform:\n{G}\nQuaternion: {q}")
-
-
-        self.timer = self.create_timer(0.05, self.broadcast_tf)
-
-    def broadcast_tf(self):
         self.transform.header.stamp = self.get_clock().now().to_msg()
         self.br.sendTransform(self.transform)
+
+        self.get_logger().info(f"Broadcasting transform:\n{G}\nQuaternion: {q}")
 
 def main():
     rclpy.init()

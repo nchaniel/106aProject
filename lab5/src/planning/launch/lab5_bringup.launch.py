@@ -33,7 +33,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'pointcloud.enable': 'true',
-            'rgb_camera.color_profile': '1280x720x30',
+            'rgb_camera.color_profile': '640x480x30',
         }.items(),
     )
 
@@ -76,6 +76,14 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Main pick/place node
+    main_node = Node(
+        package='planning',
+        executable='main',
+        name='cube_grasp',
+        output='screen'
+    )
+
     # -------------------------
     # Global shutdown on any process exit (gated — disable with shutdown_on_exit:=false for debugging)
     # -------------------------
@@ -97,6 +105,7 @@ def generate_launch_description():
         planning_tf_node,
         moveit_launch,
         ik_planner_node,
+        main_node,
 
         # Global handler (keep at end)
         shutdown_on_any_exit,

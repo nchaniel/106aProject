@@ -1,17 +1,12 @@
 # ROS Libraries
 from std_srvs.srv import Trigger
-import sys
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PointStamped 
-from moveit_msgs.msg import RobotTrajectory
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from trajectory_msgs.msg import JointTrajectory
 from sensor_msgs.msg import JointState
-from tf2_ros import Buffer, TransformListener
-from scipy.spatial.transform import Rotation as R
-import numpy as np
 
 from planning.ik import IKPlanner
 
@@ -37,29 +32,35 @@ class UR7e_CubeGrasp(Node):
         self.ik_planner = IKPlanner()
 
         self.job_queue = [] # Entries should be of type either JointState or String('toggle_grip')
-        self.obs_pose_done = False
+
+        # Joint-space observation pose.
+        # TODO: move the arm to the desired observation position manually, then run:
+        #   ros2 topic echo /joint_states --once
+        # and fill in the 6 joint angles below in the order:
+        #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
+        self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
+        self._going_home = False
 
     def joint_state_callback(self, msg: JointState):
         self.joint_state = msg
-        if not self.obs_pose_done and not hasattr(self, '_obs_triggered'):
-            self._obs_triggered = True
-            obs_joints = self.ik_planner.compute_ik(
-                self.joint_state, 0.13, 0.474, 0.619,
-                qx=0.002, qy=1.00, qz=-0.003, qw=-0.011
-            )
-            if obs_joints:
-                self.job_queue.append(obs_joints)
-                self.execute_jobs()
-            else:
-                self.get_logger().error("IK failed for observation pose")
+        if not hasattr(self, '_home_triggered'):
+            self._home_triggered = True
+            self._go_home()
+
+    def _go_home(self):
+        self._going_home = True
+        self.busy = True
+        goal = JointState()
+        goal.name = [
+            'shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',
+            'wrist_1_joint', 'wrist_2_joint', 'wrist_3_joint'
+        ]
+        goal.position = self._home_joints
+        self.job_queue.append(goal)
+        self.execute_jobs()
 
     def cube_callback(self, pick_pose):
-        # Ignore new detections while already executing a pick/place
-        if self.cube_pose is not None or getattr(self, "busy", False):
-            return
-
-        if not self.obs_pose_done:
-            self.get_logger().debug("Observation pose not complete, skipping detection")
+        if self.busy or self.cube_pose is not None:
             return
 
         if self.joint_state is None:
@@ -70,9 +71,9 @@ class UR7e_CubeGrasp(Node):
         self.cube_pose = pick_pose
 
         # Detected point in base_link frame
-        cx = pick_pose.point.x
-        cy = pick_pose.point.y
-        cz = pick_pose.point.z
+        cx = self.cube_pose.point.x
+        cy = self.cube_pose.point.y
+        cz = self.cube_pose.point.z
 
         self.get_logger().info(
             f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f}"
@@ -90,11 +91,7 @@ class UR7e_CubeGrasp(Node):
         drop_z = 0.20
 
         # 1. Move above detected object
-        pre_grasp_joints = self.ik_planner.compute_ik(
-            self.joint_state,
-            cx + x_offset,
-            cy,
-            cz + pre_grasp_z_offset
+        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx + x_offset, cy, cz + pre_grasp_z_offset
         )
 
         # # 2. Move down to grasp object
@@ -129,33 +126,33 @@ class UR7e_CubeGrasp(Node):
         #     drop_z
         # )
 
-        # # Check IK success before queueing
-        # if not all([pre_grasp_joints, grasp_joints, lift_joints, drop_pre_joints, drop_joints]):
-        #     self.get_logger().error("IK failed for one or more pick/place poses")
-        #     self.busy = False
-        #     self.cube_pose = None
-        #     return
+        if pre_grasp_joints is None:
+            self.get_logger().error(
+                f"IK failed for pre-grasp target "
+                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + pre_grasp_z_offset:.3f})"
+            )
+            self.busy = False
+            self.cube_pose = None
+            return
+
+        self.get_logger().info(
+            f"Pre-grasp target: ({cx + x_offset:.3f}, {cy:.3f}, {cz + pre_grasp_z_offset:.3f})"
+        )
 
         self.job_queue.append(pre_grasp_joints)
-        # self.job_queue.append(grasp_joints)
-        # self.job_queue.append("toggle_grip")
-        # self.job_queue.append(lift_joints)
-        # self.job_queue.append(drop_pre_joints)
-        # self.job_queue.append(drop_joints)
-        # self.job_queue.append("toggle_grip")
-        # self.job_queue.append(drop_pre_joints)
-
         self.execute_jobs()
 
 
     def execute_jobs(self):
         if not self.job_queue:
-            if not self.obs_pose_done:
-                self.obs_pose_done = True
-                self.get_logger().info("Observation pose reached. Waiting for cube detection...")
-                return
-            self.get_logger().info("All jobs completed.")
-            rclpy.shutdown()
+            if self._going_home:
+                self._going_home = False
+                self.busy = False
+                self.cube_pose = None
+                self.get_logger().info("Home reached. Ready for detection.")
+            else:
+                self.get_logger().info("Pick complete. Returning to home.")
+                self._go_home()
             return
 
         self.get_logger().info(f"Executing job queue, {len(self.job_queue)} jobs remaining.")

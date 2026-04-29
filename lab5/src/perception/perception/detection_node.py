@@ -196,8 +196,17 @@ class DetectionNode(Node):
                 )
 
                 if depth_m is None:
+                    h_d, w_d = self.depth_image.shape[:2]
+                    half = self.depth_window_size // 2
+                    patch = self.depth_image[
+                        max(0, v - half):min(h_d, v + half + 1),
+                        max(0, u - half):min(w_d, u + half + 1),
+                    ]
                     self.get_logger().warn(
-                        f"No valid depth for detection {det['class_name']} at pixel ({u}, {v})"
+                        f"No valid depth for detection {det['class_name']} at pixel ({u}, {v}) "
+                        f"| depth patch min={int(patch.min())} max={int(patch.max())} "
+                        f"nonzero={int((patch > 0).sum())}/{patch.size} "
+                        f"| depth image shape={self.depth_image.shape} dtype={self.depth_image.dtype}"
                     )
                     continue
 
@@ -225,7 +234,7 @@ class DetectionNode(Node):
                     self.target_frame
                 )
 
-                self.get_logger().debug(
+                self.get_logger().info(
                     f"[3D] {det['class_name']} | "
                     f"pixel=({u}, {v}) | "
                     f"depth={depth_m:.3f} m | "
@@ -250,7 +259,7 @@ class DetectionNode(Node):
         if best_pick_point is not None:
             _, pt = best_pick_point
             self.pick_point_pub.publish(pt)
-            self.get_logger().debug(
+            self.get_logger().info(
                 f"Published pick point in {self.target_frame}: "
                 f"({pt.point.x:.3f}, {pt.point.y:.3f}, {pt.point.z:.3f})"
             )
