@@ -3,7 +3,7 @@ import cv2
 
 
 class YOLODetector:
-    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.5):
+    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.4):
         """
         model_path: path to YOLO model weights
         conf_threshold: minimum confidence to keep a detection
