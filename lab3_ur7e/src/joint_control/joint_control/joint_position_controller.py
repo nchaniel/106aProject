@@ -10,6 +10,7 @@ import threading
 import select
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 class JointPosController(Node):
     def __init__(self, angles):
         super().__init__('joint_pos_controller')
@@ -28,6 +29,11 @@ class KeyboardController(Node):
             shoulder_pan_joint):
         super().__init__('ur7e_keyboard_controller')
 >>>>>>> 0445bcc (Complete lab3)
+=======
+class JointController(Node):
+    def __init__(self, joint_array):
+        super().__init__('ur7e_joint_controller')
+>>>>>>> e2b32b5 (Complete lab 3)
         
         self.joint_names = [
             'shoulder_lift_joint',
@@ -37,6 +43,7 @@ class KeyboardController(Node):
             'wrist_3_joint',
             'shoulder_pan_joint',
         ]
+<<<<<<< HEAD
 <<<<<<< HEAD
 
         self.pub = self.create_publisher(JointTrajectory, '/joint_trajectory_validated', 10)
@@ -93,64 +100,29 @@ def main(args=None):
         
         self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 10)
         
+=======
+        self.JointAngles = joint_array
+>>>>>>> e2b32b5 (Complete lab 3)
         self.pub = self.create_publisher(JointTrajectory, '/joint_trajectory_validated', 10)
-        
-        self.running = True
-        threading.Thread(target=self.keyboard_loop, daemon=True).start()
 
-    def joint_state_callback(self, msg: JointState):
-        for i, name in enumerate(self.joint_names):
-            if name in msg.name:
-                idx = msg.name.index(name)
-                self.joint_positions[i] = msg.position[idx]
-        self.got_joint_states = True
-
-    def keyboard_loop(self):
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            self.get_logger().info("Keyboard controller running. Increment: 123456 | Decrement: qwerty | Ctrl+C to exit")
-            while self.running:
-                try:
-                    if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
-                        key = sys.stdin.read(1)
-                        if key == '\x03':
-                            return
-                        self.handle_key(key)
-                except KeyboardInterrupt:
-                    self.running = False
-                    break
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-    def handle_key(self, key):
-        if not self.got_joint_states:
-            self.get_logger().info("Waiting for joint states...")
-            return
-        
-        new_positions = self.joint_positions.copy()
-        if key in INCREMENT_KEYS:
-            idx = INCREMENT_KEYS.index(key)
-            new_positions[idx] = JointAngles[key]
-        
         traj = JointTrajectory()
         traj.joint_names = self.joint_names
         point = JointTrajectoryPoint()
-        point.positions = new_positions
+        point.positions = self.JointAngles
         point.velocities = [0.0] * 6
         point.time_from_start.sec = 1
         traj.points.append(point)
         self.pub.publish(traj)
-
-        self.joint_positions = new_positions
+    
 
 def main(args=None):
     rclpy.init(args=args)
-    joints = sys.argv[1],sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
-    node = KeyboardController(joints)
+    joints = [float(sys.argv[1]),float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]), float(sys.argv[6])]
+    print(joints)
+    node = JointController(joints)
     try:
-        rclpy.spin(node)
+        rclpy.spin_once(node)
+        sleep(1000)
     except KeyboardInterrupt:
         node.running = False
         print("\nExiting keyboard controller...")
