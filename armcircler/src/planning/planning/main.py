@@ -80,10 +80,6 @@ class UR7e_CubeGrasp(Node):
         num_points = 20    # Number of waypoints for a smooth arc
         
         self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
-
-        ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
-        if ik_sol:
-            self.job_queue.append(ik_sol)
     
         # Generate angles from 0 to Pi (180 degrees)
         for row in range(2):
