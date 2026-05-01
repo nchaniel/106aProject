@@ -5,7 +5,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
-from geometry_msgs.msg import PointStamped,TransformStamped 
+from geometry_msgs.msg import PointStamped 
 from moveit_msgs.msg import RobotTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from sensor_msgs.msg import JointState, Image
@@ -24,9 +24,6 @@ class UR7e_CubeGrasp(Node):
 
         self.cube_pub = self.create_subscription(PointStamped, '/cube_pose', self.cube_callback, 1)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
-
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -47,7 +44,6 @@ class UR7e_CubeGrasp(Node):
         self.bridge = CvBridge()
         self.image_count = 0
         self.frame = None
-        self.first_position_done = 0
 
         self.subscription = self.create_subscription(
             Image,
@@ -55,17 +51,11 @@ class UR7e_CubeGrasp(Node):
             self.photo_callback,
             10
         )
-    def get_tool_camera_transform(self):
-        R_flip = R.from_euler('z', np.pi).as_matrix()
 
-        T_tool_camera = np.eye(4)
-        T_tool_camera[:3, :3] = R_flip
-        T_tool_camera[:3, 3] = np.array([-0.025, 0.1, 0.0])
-        return T_tool_camera
     def photo_callback(self, msg):
         self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
     def take_photo(self):
-        cv2.imwrite(f'captured_image_{self.image_count+1}.jpg', self.frame)
+        cv2.imwrite(f'captured_images/captured_image_{self.image_count+1}.jpg', self.frame)
         self.get_logger().info(f'Saved image {self.image_count+1}')
         self.image_count +=1
 
@@ -78,39 +68,29 @@ class UR7e_CubeGrasp(Node):
             return
         if self.joint_state is None:
             return
-        '''
-        tx0, ty0, tz0 = 0.4, 0.0, 0.5  # example safe point
-        qx0, qy0, qz0, qw0 = 0, 1, 0, 0  # pointing downward
-        
-        if self.first_position_done == 0:
-            print("trying to solve first pose")
-            ik_start = self.ik_planner.compute_ik(
-                self.joint_state,
-                tx0, ty0, tz0,
-                qx=qx0, qy=qy0, qz=qz0, qw=qw0
-            )
-            self.job_queue.append(ik_start)
-            print("first pose sent")
-            self.first_position_done = 1
-        '''
+
 
         self.cube_pose = cube_pose
-        cx = None
-        cy = None
-        cz = None
-        if cx == None and cy == None and cz == None:
-            cx, cy, cz = cube_pose.point.x, cube_pose.point.y, cube_pose.point.z
+        cx, cy, cz = cube_pose.point.x, cube_pose.point.y, cube_pose.point.z
         
         # --- Orbit Parameters ---
-        radius = 0.25      # Distance from the cube in meters
+        tilt_distance = 0.12
+        radius = 0.15     # Distance from the cube in meters
         height = 0.3      # Height above the cube
-        num_points = 10    # Number of waypoints for a smooth arc
+        num_points = 20    # Number of waypoints for a smooth arc
         
         self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
 
+        ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
+        if ik_sol:
+            self.job_queue.append(ik_sol)
+    
         # Generate angles from 0 to Pi (180 degrees)
-        for i in range(2):
-            for theta in np.linspace(6*np.pi/5, -4*np.pi/5, num_points):
+        for row in range(2):
+            angles = np.linspace(-np.pi/4, np.pi+np.pi/8, num_points)
+            if row == 1:
+                angles = np.flip(angles)
+            for theta in angles:
                 # 1. Calculate Cartesian Position (Orbiting in the XY plane)
                 tx = cx + radius * np.cos(theta)
                 ty = cy + radius * np.sin(theta)
@@ -124,43 +104,18 @@ class UR7e_CubeGrasp(Node):
                 # then tilt down (pi around Y) to look at the table.
                 
                 # This creates a rotation matrix representing the camera facing the center
-                camera_pos = np.array([tx, ty, tz])
-
-                # --- Step 2: build camera orientation (look-at cube) ---
-                target = np.array([cx, cy, cz])
-
-                z_axis = target - camera_pos
-                z_axis = z_axis / np.linalg.norm(z_axis)
-
-                up = np.array([0, 0, 1])
-
-                x_axis = np.cross(up, z_axis)
-                x_axis = x_axis / np.linalg.norm(x_axis)
-
-                y_axis = np.cross(z_axis, x_axis)
-
-                R_camera_world = np.vstack([x_axis, y_axis, z_axis]).T
-
-                # --- Step 3: build full camera pose in world ---
-                T_camera_world = np.eye(4)
-                T_camera_world[:3, :3] = R_camera_world
-                T_camera_world[:3, 3] = camera_pos
-
-                T_tool_camera = self.get_tool_camera_transform()
-                T_tool_world = T_camera_world @ np.linalg.inv(T_tool_camera)
-
-                position = T_tool_world[:3, 3]
-                rotation_matrix = T_tool_world[:3, :3]
-
-                q = R.from_matrix(rotation_matrix).as_quat()
-
-
+                rot_z = R.from_euler('z', theta-np.pi/2) 
+                rot_y = R.from_euler('y', np.pi) # Points the gripper/camera down
+                tilt_angle = np.arctan2(radius + tilt_distance, height)
+                rot_x = R.from_euler('x', tilt_angle)
+                combined_rot = rot_z * rot_y * rot_x
+                q = combined_rot.as_quat() # [x, y, z, w]'''
 
 
                 # 3. Compute IK for this waypoint
                 ik_sol = self.ik_planner.compute_ik(
-                    self.joint_state,
-                    position[0], position[1], position[2],
+                    self.joint_state, 
+                    tx, ty, tz, 
                     qx=q[0], qy=q[1], qz=q[2], qw=q[3]
                 )
 
@@ -168,78 +123,12 @@ class UR7e_CubeGrasp(Node):
                     self.job_queue.append(ik_sol)
                 else:
                     self.get_logger().warn(f"IK failed for theta {theta}")
-            radius = 0.25
             height = 0.2
-        radius = 0
-        height = 0.5
-        num_points = 1
-        for theta in np.linspace(0, 0, num_points):
-            # 1. Calculate Cartesian Position (Orbiting in the XY plane)
-            tx = cx + radius * np.cos(theta)
-            ty = cy + radius * np.sin(theta)
-            tz = cz + height
+            tilt_distance += 0.05
 
-
-            # 2. Calculate "Look-At" Orientation
-            # We want the camera's Z-axis (optical axis) to point at the cube.
-            # A simple approach for a top-down orbit:
-            # Rotate around Z by (theta + pi) to face inward, 
-            # then tilt down (pi around Y) to look at the table.
-            
-            # This creates a rotation matrix representing the camera facing the center
-            '''
-            rot_z = R.from_euler('z', theta-np.pi/2) 
-            tilt_angle = np.arctan2(radius, height)
-            rot_y = R.from_euler('y', np.pi) # Points the gripper/camera down
-            rot_x = R.from_euler('x', tilt_angle)
-            combined_rot = rot_z * rot_y * rot_x
-            q = combined_rot.as_quat() # [x, y, z, w]
-            # --- Step 1: camera position in world ---
-            '''
-            camera_pos = np.array([tx, ty, tz])
-
-            # --- Step 2: build camera orientation (look-at cube) ---
-            target = np.array([cx, cy, cz])
-
-            z_axis = target - camera_pos
-            z_axis = z_axis / np.linalg.norm(z_axis)
-
-            up = np.array([0, 0, 1])
-
-            x_axis = np.cross(up, z_axis)
-            x_axis = x_axis
-
-            y_axis = np.cross(z_axis, x_axis)
-
-            R_camera_world = np.vstack([x_axis, y_axis, z_axis]).T
-
-            # --- Step 3: build full camera pose in world ---
-            T_camera_world = np.eye(4)
-            T_camera_world[:3, :3] = R_camera_world
-            T_camera_world[:3, 3] = camera_pos
-
-            T_tool_camera = self.get_tool_camera_transform()
-            T_tool_world = T_camera_world @ np.linalg.inv(T_tool_camera)
-
-            position = T_tool_world[:3, 3]
-            rotation_matrix = T_tool_world[:3, :3]
-
-            q = R.from_matrix(rotation_matrix).as_quat()
-
-
-
-
-            # 3. Compute IK for this waypoint
-            ik_sol = self.ik_planner.compute_ik(
-                self.joint_state,
-                position[0], position[1], position[2],
-                qx=q[0], qy=q[1], qz=q[2], qw=q[3]
-            )
-
-            if ik_sol:
-                self.job_queue.append(ik_sol)
-            else:
-                self.get_logger().warn(f"IK failed for theta {theta}")
+        ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
+        if ik_sol:
+            self.job_queue.append(ik_sol)
 
         # Start execution
         if self.job_queue:
@@ -264,7 +153,6 @@ class UR7e_CubeGrasp(Node):
                 return
 
             self.get_logger().info("Planned to position")
-
             self._execute_joint_trajectory(traj.joint_trajectory)
 
 
