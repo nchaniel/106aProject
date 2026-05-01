@@ -7,7 +7,7 @@ output: /armcircler/segmented
 
 Current Models:
     SAM2: tiny
-    YOLO: yolov8n (waiting for LAMS yolo model)
+    YOLO: best.pt (custom trained)
     --conf        YOLO confidence threshold 0-1  (default: 0.25)
     --classes     Space-separated class names to keep, e.g. --classes person cup
 
@@ -37,6 +37,8 @@ SAM2_DIR = _HERE if os.path.isdir(os.path.join(_HERE, "checkpoints")) else os.pa
 
 # config_file is a Hydra config name (resolved internally via pkg://sam2, not a filesystem path)
 # ckpt_path is a real filesystem path — we make it absolute using SAM2_DIR
+BEST_PT = os.path.join(_HERE, "best.pt")
+
 SAM2_CONFIGS = {
     "tiny":  ("configs/sam2.1/sam2.1_hiera_t.yaml",  os.path.join(SAM2_DIR, "checkpoints/sam2.1_hiera_tiny.pt")),
     "small": ("configs/sam2.1/sam2.1_hiera_s.yaml",  os.path.join(SAM2_DIR, "checkpoints/sam2.1_hiera_small.pt")),
@@ -171,7 +173,7 @@ def main():
     parser.add_argument("--output_dir", default="../armcircler/segmented",
                         help="Output root folder (default: ../armcircler/segmented)")
     parser.add_argument("--model",   choices=["tiny", "small", "large"], default="tiny")
-    parser.add_argument("--yolo",    default="yolov8n")
+    parser.add_argument("--yolo",    default=BEST_PT)
     parser.add_argument("--conf",    type=float, default=0.25)
     parser.add_argument("--classes", nargs="*", default=None)
     args = parser.parse_args()
@@ -203,7 +205,7 @@ def main():
     # load both models once here — this is the main advantage over running segment_v2.py in a loop,
     # which would reload the models from disk for every single image
     print(f"Loading YOLO ({args.yolo}) ...")
-    yolo_model = YOLO(f"{args.yolo}.pt")
+    yolo_model = YOLO(args.yolo)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading SAM2-{args.model} on {device} ...")
