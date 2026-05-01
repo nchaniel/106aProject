@@ -60,7 +60,7 @@ class UR7e_CubeGrasp(Node):
 
         T_tool_camera = np.eye(4)
         T_tool_camera[:3, :3] = R_flip
-        T_tool_camera[:3, 3] = np.array([-0.025, 0.13, 0.0])
+        T_tool_camera[:3, 3] = np.array([-0.025, 0.1, 0.0])
         return T_tool_camera
     def photo_callback(self, msg):
         self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -95,7 +95,11 @@ class UR7e_CubeGrasp(Node):
         '''
 
         self.cube_pose = cube_pose
-        cx, cy, cz = cube_pose.point.x, cube_pose.point.y, cube_pose.point.z
+        cx = None
+        cy = None
+        cz = None
+        if cx == None and cy == None and cz == None:
+            cx, cy, cz = cube_pose.point.x, cube_pose.point.y, cube_pose.point.z
         
         # --- Orbit Parameters ---
         radius = 0.25      # Distance from the cube in meters
@@ -104,9 +108,72 @@ class UR7e_CubeGrasp(Node):
         
         self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
 
-
         # Generate angles from 0 to Pi (180 degrees)
-        for theta in np.linspace(-4*np.pi/5, 6*np.pi/5, num_points):
+        for i in range(2):
+            for theta in np.linspace(6*np.pi/5, -4*np.pi/5, num_points):
+                # 1. Calculate Cartesian Position (Orbiting in the XY plane)
+                tx = cx + radius * np.cos(theta)
+                ty = cy + radius * np.sin(theta)
+                tz = cz + height
+
+
+                # 2. Calculate "Look-At" Orientation
+                # We want the camera's Z-axis (optical axis) to point at the cube.
+                # A simple approach for a top-down orbit:
+                # Rotate around Z by (theta + pi) to face inward, 
+                # then tilt down (pi around Y) to look at the table.
+                
+                # This creates a rotation matrix representing the camera facing the center
+                camera_pos = np.array([tx, ty, tz])
+
+                # --- Step 2: build camera orientation (look-at cube) ---
+                target = np.array([cx, cy, cz])
+
+                z_axis = target - camera_pos
+                z_axis = z_axis / np.linalg.norm(z_axis)
+
+                up = np.array([0, 0, 1])
+
+                x_axis = np.cross(up, z_axis)
+                x_axis = x_axis / np.linalg.norm(x_axis)
+
+                y_axis = np.cross(z_axis, x_axis)
+
+                R_camera_world = np.vstack([x_axis, y_axis, z_axis]).T
+
+                # --- Step 3: build full camera pose in world ---
+                T_camera_world = np.eye(4)
+                T_camera_world[:3, :3] = R_camera_world
+                T_camera_world[:3, 3] = camera_pos
+
+                T_tool_camera = self.get_tool_camera_transform()
+                T_tool_world = T_camera_world @ np.linalg.inv(T_tool_camera)
+
+                position = T_tool_world[:3, 3]
+                rotation_matrix = T_tool_world[:3, :3]
+
+                q = R.from_matrix(rotation_matrix).as_quat()
+
+
+
+
+                # 3. Compute IK for this waypoint
+                ik_sol = self.ik_planner.compute_ik(
+                    self.joint_state,
+                    position[0], position[1], position[2],
+                    qx=q[0], qy=q[1], qz=q[2], qw=q[3]
+                )
+
+                if ik_sol:
+                    self.job_queue.append(ik_sol)
+                else:
+                    self.get_logger().warn(f"IK failed for theta {theta}")
+            radius = 0.25
+            height = 0.2
+        radius = 0
+        height = 0.5
+        num_points = 1
+        for theta in np.linspace(0, 0, num_points):
             # 1. Calculate Cartesian Position (Orbiting in the XY plane)
             tx = cx + radius * np.cos(theta)
             ty = cy + radius * np.sin(theta)
@@ -140,7 +207,7 @@ class UR7e_CubeGrasp(Node):
             up = np.array([0, 0, 1])
 
             x_axis = np.cross(up, z_axis)
-            x_axis = x_axis / np.linalg.norm(x_axis)
+            x_axis = x_axis
 
             y_axis = np.cross(z_axis, x_axis)
 
@@ -173,7 +240,6 @@ class UR7e_CubeGrasp(Node):
                 self.job_queue.append(ik_sol)
             else:
                 self.get_logger().warn(f"IK failed for theta {theta}")
-        
 
         # Start execution
         if self.job_queue:
