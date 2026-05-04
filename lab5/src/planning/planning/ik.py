@@ -92,7 +92,7 @@ class IKPlanner(Node):
     def plan_to_joints(self, target_joint_state, start_joint_state=None):
         req = GetMotionPlan.Request()
         req.motion_plan_request.group_name = 'ur_manipulator'
-        req.motion_plan_request.allowed_planning_time = 5.0
+        req.motion_plan_request.allowed_planning_time = 10.0
         req.motion_plan_request.planner_id = "RRTConnectkConfigDefault"
 
         if start_joint_state is not None:

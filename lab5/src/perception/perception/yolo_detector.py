@@ -3,7 +3,7 @@ import cv2
 
 
 class YOLODetector:
-    def __init__(self, model_path="yolov8n.pt", conf_threshold=0.4):
+    def __init__(self, model_path="best.pt", conf_threshold=0.5):
         """
         model_path: path to YOLO model weights
         conf_threshold: minimum confidence to keep a detection
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     if image is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
 
-    detector = YOLODetector(model_path="yolov8n.pt", conf_threshold=0.5)
+    detector = YOLODetector(model_path="best.pt", conf_threshold=0.5)
     detections = detector.detect(image)
 
     print("Detections:")
