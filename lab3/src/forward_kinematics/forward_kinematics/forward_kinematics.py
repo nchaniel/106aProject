@@ -1,7 +1,12 @@
 #!usr/bin/env python
 import numpy as np
 import scipy as sp
+<<<<<<< HEAD
 import forward_kinematics.kin_func_skeleton as kfs
+=======
+import forward_kinematics.kin_func_skeleton as kfs 
+from sensor_msgs.msg import JointState
+>>>>>>> 0445bcc (Complete lab3)
 
 def ur7e_forward_kinematics_from_angles(joint_angles):
     """
@@ -39,6 +44,7 @@ def ur7e_forward_kinematics_from_angles(joint_angles):
                   [0., 0., 1.], 
                   [0., 1., 0.]])
 
+<<<<<<< HEAD
     # define gst(0)
     # this represents the tool frame relative to base when all angles are 0
     # use the point on the last joint (wrist_3) for the translation
@@ -46,6 +52,22 @@ def ur7e_forward_kinematics_from_angles(joint_angles):
     gst0 = np.eye(4)
     gst0[:3, :3] = R      
     gst0[:3, 3] = q_tool  #initial tool position
+=======
+    # YOUR CODE HERE (Task 1)
+    q = q0[:, 5].reshape(-1,1)
+    gst = np.concatenate((np.concatenate((R, q), axis=1), np.array([[0,0,0,1]])), axis=0)
+
+    xi0 = np.zeros((6,6))
+    for i in range(6):
+        w = w0[:, i]
+        v0 = -1 * np.cross(w, q0[:, i])
+        xi = np.concatenate((v0, w), axis=0)
+        xi0[:,i] = xi
+
+    G = kfs.prod_exp(xi0, joint_angles) @ gst
+    # print(G)
+    return G
+>>>>>>> 0445bcc (Complete lab3)
 
     # compute PoE
     prod_exp = np.eye(4)
@@ -84,9 +106,33 @@ def ur7e_forward_kinematics_from_joint_state(joint_state): #not necessary as it 
     # Extract joint angles from joint_state object 
     j1, j2, j3, j4, j5, j6 = joint_state.position  # joint_state.position should be a list of angles
     
+<<<<<<< HEAD
     # Convert to a numpy array
     angles = np.array([j1, j2, j3, j4, j5, j6])
     
     T = ur7e_foward_kinematics_from_angles(angles)  # Call the function you implemented in Task 1
     
     return T
+=======
+    angles = np.zeros(6)
+    # YOUR CODE HERE (Task 2)
+    names, pos = joint_state.name, joint_state.position
+    for i in range(len(names)):
+        n = names[i]
+        if n == "shoulder_pan_joint":
+            angles[0] = pos[i]
+        if n == "shoulder_lift_joint":
+            angles[1] = pos[i]
+        if n == "elbow_joint":
+            angles[2] = pos[i]
+        if n == "wrist_1_joint":
+            angles[3] = pos[i]
+        if n == "wrist_2_joint":
+            angles[4] = pos[i]
+        if n == "wrist_3_joint":
+            angles[5] = pos[i]
+            
+    return ur7e_forward_kinematics_from_angles(angles)
+    # END YOUR CODE HERE
+
+>>>>>>> 0445bcc (Complete lab3)
