@@ -2,15 +2,15 @@
 """
 Kinematic function skeleton code for Lab 3 prelab.
 
-Course: EE 106A, Fall 2021
+Course: EE 106A, Spring 2026
 Originally written by: Aaron Bestick, 9/10/14
 Adapted for Fall 2020 by: Amay Saxena, 9/10/20
 
-This Python file is a code skeleton for Lab 3 prelab. You should fill in 
-the body of the five empty methods below so that they implement the kinematic 
+This Python file is a code skeleton for Lab 3 prelab. You should fill in
+the body of the five empty methods below so that they implement the kinematic
 functions described in the assignment.
 
-When you think you have the methods implemented correctly, you can test your 
+When you think you have the methods implemented correctly, you can test your
 code by running "python kin_func_skeleton.py at the command line.
 """
 
@@ -24,14 +24,14 @@ np.set_printoptions(precision=4,suppress=True)
 def rotation_2d(theta):
     """
     Computes a 2D rotation matrix given the angle of rotation.
-    
+   
     Args:
     theta: the angle of rotation
-    
+   
     Returns:
     rot - (2,2) ndarray: the resulting rotation matrix
     """
-    
+   
     rot = np.zeros((2,2))
     rot[0,0] = np.cos(theta)
     rot[1,1] = np.cos(theta)
@@ -43,10 +43,10 @@ def rotation_2d(theta):
 def hat_2d(xi):
     """
     Converts a 2D twist to its corresponding 3x3 matrix representation
-    
+   
     Args:
     xi - (3,) ndarray: the 2D twist
-    
+   
     Returns:
     xi_hat - (3,3) ndarray: the resulting 3x3 matrix
     """
@@ -62,13 +62,13 @@ def hat_2d(xi):
 
 def homog_2d(xi, theta):
     """
-    Computes a 3x3 homogeneous transformation matrix given a 2D twist and a 
+    Computes a 3x3 homogeneous transformation matrix given a 2D twist and a
     joint displacement
-    
+   
     Args:
     xi - (3,) ndarray: the 2D twist
     theta: the joint displacement
-    
+   
     Returns:
     g - (3,3) ndarray: the resulting homogeneous transformation matrix
     """
@@ -92,15 +92,14 @@ def homog_2d(xi, theta):
 
 #-----------------------------3D Functions--------------------------------------
 #-------------(These are the functions you need to complete)--------------------
-#-------------RUN THIS PYTHON FILE TO ENSURE THAT YOUR COMPLETED FUNCTIONS WORK AS INTENDED (SEE TESTS BELOW)----------
 
 def skew_3d(omega):
     """
     Converts a rotation vector in 3D to its corresponding skew-symmetric matrix.
-    
+   
     Args:
     omega - (3,) ndarray: the rotation vector
-    
+   
     Returns:
     omega_hat - (3,3) ndarray: the corresponding skew symmetric matrix
     """
@@ -109,15 +108,30 @@ def skew_3d(omega):
                           [-omega[1], omega[0], 0]])
     return omega_hat
 
+<<<<<<< HEAD
+=======
+    # YOUR CODE HERE
+    omega_hat = np.zeros((3,3))
+    omega_hat[0,1] = -omega[2].item()
+    omega_hat[1,0] = omega[2].item()
+    omega_hat[0,2] = omega[1].item()
+    omega_hat[2,0] = -omega[1].item()
+    omega_hat[1,2] = -omega[0].item()
+    omega_hat[2,1] = omega[0].item()
+   
+    return omega_hat
+
+
+>>>>>>> 0445bcc (Complete lab3)
 
 def rotation_3d(omega, theta):
     """
     Computes a 3D rotation matrix given a rotation axis and angle of rotation.
-    
+   
     Args:
     omega - (3,) ndarray: the axis of rotation
     theta: the angle of rotation
-    
+   
     Returns:
     rot - (3,3) ndarray: the resulting rotation matrix
     """
@@ -131,14 +145,27 @@ def rotation_3d(omega, theta):
     
     return rot
 
+<<<<<<< HEAD
+=======
+    # YOUR CODE HERE
+    what = skew_3d(omega)
+    norm = np.linalg.norm(omega)
+    rot1 = np.eye(3)
+    rot2 = (what/norm)*np.sin(norm*theta)
+    rot3 = (what@what/norm**2)*(1-np.cos(norm*theta))
+    rot = rot1+rot2+rot3
+    return rot
+
+
+>>>>>>> 0445bcc (Complete lab3)
 
 def hat_3d(xi):
     """
     Converts a 3D twist to its corresponding 4x4 matrix representation
-    
+   
     Args:
     xi - (6,) ndarray: the 3D twist
-    
+   
     Returns:
     xi_hat - (4,4) ndarray: the corresponding 4x4 matrix
     """
@@ -149,12 +176,22 @@ def hat_3d(xi):
     xi_hat[0:3, 3] = v
     return xi_hat
 
+<<<<<<< HEAD
+=======
+    # YOUR CODE HERE
+    xi_hat = np.zeros((4,4))
+    xi_hat[0:3,0:3]=skew_3d(xi[3:6])
+    xi_hat[0:3,3] = xi[0:3]
+    return xi_hat
+
+
+>>>>>>> 0445bcc (Complete lab3)
 
 def homog_3d(xi, theta):
     """
-    Computes a 4x4 homogeneous transformation matrix given a 3D twist and a 
+    Computes a 4x4 homogeneous transformation matrix given a 3D twist and a
     joint displacement.
-    
+   
     Args:
     xi - (6,) ndarray: the 3D twist
     theta: the joint displacement
@@ -166,6 +203,7 @@ def homog_3d(xi, theta):
     omega_norm = np.linalg.norm(omega)
     g = np.eye(4,4)
 
+<<<<<<< HEAD
     # Prismatic joint
     if np.isclose(omega_norm, 0): #just in case it isn't exactly 0
         g[0:3, 3] = v * theta
@@ -179,21 +217,36 @@ def homog_3d(xi, theta):
         g[0:3, 0:3] = R
         g[0:3, 3] = p
         return g
+=======
+    # YOUR CODE HERE
+    g = np.eye(4)
+    v = xi[0:3]
+    omega = xi[3:6].reshape(3,1)
+    if (omega==0).all():
+        g[0:3,3] = theta*v
+        return g
+    else:
+        g[0:3,0:3] = rotation_3d(omega,theta)
+        g[0:3,3] = (1/np.linalg.norm(omega)**2)*((np.eye(3)-rotation_3d(omega,theta))@(skew_3d(omega))@(v)+omega@omega.T@(v*theta))
+        return g
+
+>>>>>>> 0445bcc (Complete lab3)
 
 
 def prod_exp(xi, theta):
     """
-    Computes the product of exponentials for a kinematic chain, given 
+    Computes the product of exponentials for a kinematic chain, given
     the twists and displacements for each joint.
-    
+   
     Args:
     xi - (6, N) ndarray: the twists for each joint
     theta - (N,) ndarray: the displacement of each joint
-    
+   
     Returns:
     g - (4,4) ndarray: the resulting homogeneous transformation matrix
     """
 
+<<<<<<< HEAD
     N = theta.shape[0] # number of joints
     g = np.eye(4)
     
@@ -204,6 +257,15 @@ def prod_exp(xi, theta):
     
     return g
 
+=======
+    # YOUR CODE HERE
+    g = np.eye(4)
+    for i in range(len(theta)):
+        g = g @ homog_3d(xi.T[i], theta[i])
+    return g
+
+   
+>>>>>>> 0445bcc (Complete lab3)
 
 #---------------------------------TESTING CODE---------------------------------
 #-------------------------DO NOT MODIFY ANYTHING BELOW HERE--------------------

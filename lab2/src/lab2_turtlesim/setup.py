@@ -13,8 +13,13 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+<<<<<<< HEAD
     maintainer='ee106a-abm',
     maintainer_email='nathan.k.lam04@gmail.com',
+=======
+    maintainer='ee106a-abs',
+    maintainer_email='christopher-mich_g@berkeley.edu',
+>>>>>>> 82b000e (lab2)
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -24,7 +29,11 @@ setup(
     },
     entry_points={
         'console_scripts': [
+<<<<<<< HEAD
         'turtle_controller = lab2_turtlesim.turtle_controller:main',
+=======
+            'turtle_controller = lab2_turtlesim.turtle_controller:main',
+>>>>>>> 82b000e (lab2)
         ],
     },
 )

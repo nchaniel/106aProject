@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
+<<<<<<< HEAD
 from turtlesim.srv import TeleportAbsolute
 from turtle_patrol_interface.srv import MultiPatrol
 
@@ -75,12 +76,77 @@ class MultiTurtlePatrolServer(Node):
 
         response.success = True
         response.message = f"{name} teleported and patrolling."
+=======
+from std_srvs.srv import Empty
+from turtlesim.srv import TeleportAbsolute
+from turtle_patrol_interface.srv import Patrol
+
+
+class Turtle1PatrolServer(Node):
+    def __init__(self):
+        super().__init__('multi_patrol_server')
+        self.cmd_dict = {}
+
+        # Publisher: actually drives turtle1
+        #self._cmd_pub = self.create_publisher(Twist, '/' +turtle_name+'/cmd_vel', 10)
+        self._srv = self.create_service(Patrol, '/patrol', self.patrol_callback)
+
+        # Current commanded speeds (what timer publishes)
+        #self._lin = 0.0
+        #self._ang = 0.0
+
+        # Timer: publish current speeds at 10 Hz
+        self._pub_timer = self.create_timer(0.1, self._publish_current_cmds)
+
+        self.get_logger().info('Turtle1PatrolServer ready (continuous publish mode).')
+
+    # -------------------------------------------------------
+    # Timer publishes current Twist
+    # -------------------------------------------------------
+    def _publish_current_cmds(self):
+        for command in self.cmd_dict:
+            if len(self.cmd_dict[command]) == 2:
+                self.cmd_dict[command][0].publish(self.cmd_dict[command][1])
+
+        #self._cmd_pub.publish(msg)
+
+    # -------------------------------------------------------
+    # Service callback: update speeds
+    # -------------------------------------------------------
+    def patrol_callback(self, request: Patrol.Request, response: Patrol.Response):
+        self.get_logger().info(
+            f"Patrol request: vel={request.vel:.2f}, omega={request.omega:.2f}"
+        )
+        turtle_name = request.turtle_name
+
+        if turtle_name not in self.cmd_dict:
+            cmd_pub = self.create_publisher(Twist, '/' + turtle_name +'/cmd_vel', 10)
+            cmd = Twist()
+            cmd.linear.x = request.vel
+            cmd.angular.z = request.omega
+            self.cmd_dict[request.turtle_name] = [cmd_pub, cmd]
+            tele_client = self.create_client(TeleportAbsolute, '/' +turtle_name+'/teleport_absolute')
+            tele_req = TeleportAbsolute.Request()
+            tele_req.x = request.x
+            tele_req.y = request.y
+            tele_req.theta = request.theta
+            future = tele_client.call_async(tele_req)
+
+        self.get_logger().info(
+            f"Streaming cmd_vel: lin.x={request.vel:.2f}, ang.z={request.omega:.2f} (10 Hz)"
+        )
+        response.success = True
+>>>>>>> 82b000e (lab2)
         return response
 
 
 def main(args=None):
     rclpy.init(args=args)
+<<<<<<< HEAD
     node = MultiTurtlePatrolServer()
+=======
+    node = Turtle1PatrolServer()
+>>>>>>> 82b000e (lab2)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

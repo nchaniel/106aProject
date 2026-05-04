@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import numpy as np
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -19,13 +20,17 @@ class TurtleBotController(Node):
         self.ar_frame = frame2
 
         # Note: these constants might not work for your turtlebot, be willing to tune them if it isn't reaching the goal!
-        self.K1 = 0.3
+        self.K1 = 0.3 * 0.5
         self.K2 = 1.0
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+<<<<<<< HEAD
         self.pub = self.create_publisher(Twist, f'/cmd_vel', 10)
+=======
+        self.pub = self.create_publisher(Twist,'/cmd_vel', 10)
+>>>>>>> 0445bcc (Complete lab3)
         self.timer = self.create_timer(0.1, self.loop)
 
         self.get_logger().info(
@@ -36,6 +41,7 @@ class TurtleBotController(Node):
     def loop(self):
         try:
             tf = self.tf_buffer.lookup_transform(self.turtle_frame, self.ar_frame, Time())
+<<<<<<< HEAD
 
             #position error
             x_error = tf.transform.translation.x
@@ -46,6 +52,25 @@ class TurtleBotController(Node):
             control_cmd.angular.z = self.K2 * y_error
 
             self.pub.publish(control_cmd)
+=======
+            trans = tf.transform.translation
+            dist = math.sqrt(trans.x**2 + trans.y**2 + trans.z**2)
+            print("dist: " + str(dist))
+            if (dist > 0.28):
+                control_cmd = Twist()
+                control_cmd.linear.x = self.K1 * trans.x
+                control_cmd.linear.y = 0.0
+                control_cmd.linear.z = 0.0
+                control_cmd.angular.x = 0.0
+                control_cmd.angular.y = 0.0
+                control_cmd.angular.z = self.K2 * trans.y
+                self.pub.publish(control_cmd)
+                print("x: " + str(control_cmd.linear.x) + ", y: " + str(control_cmd.angular.z))
+            else: 
+                self.pub.publish(Twist())
+                print("here")
+            print("")
+>>>>>>> 0445bcc (Complete lab3)
 
         except (TransformException, LookupException, ConnectivityException, ExtrapolationException):
             self.pub.publish(Twist())
