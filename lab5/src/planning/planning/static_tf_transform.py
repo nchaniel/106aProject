@@ -11,21 +11,15 @@ class ConstantTransformPublisher(Node):
         super().__init__('constant_tf_publisher')
         self.br = StaticTransformBroadcaster(self)
 
-        # Homogeneous transform G_wrist_3_link->camera_depth_optical
-        # Rotation: 180° around x-axis — keeps x correct, negates y (fixes left/right) and z (fixes up/down)
-        G = np.array([[1,  0,  0, -0.025],
-                      [0, 1,  0,  0.13],
-                      [0,  0, 1,  0.0],
+        #new transform
+        G = np.array([[0,  -1,  0, -0.025],
+                      [0,  0,  -1,  0.13],
+                      [1,  0,  0,  0.0],
                       [0,  0,  0,  1.0]
         ])
 
         # Create TransformStamped
         self.transform = TransformStamped()
-
-        # ------------------------------------------
-        # TODO: Fill out TransformStamped message
-        # ------------------------------------------
-
         
 
         # Frame IDs tell ROS which part of the robot the camera is attached to.

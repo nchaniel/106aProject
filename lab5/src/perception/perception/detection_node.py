@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 from geometry_msgs.msg import PointStamped
 
 from cv_bridge import CvBridge
@@ -11,10 +11,7 @@ import tf2_ros
 
 from perception.yolo_detector import YOLODetector
 from perception.pixel_to_world import (
-    bbox_center,
-    get_depth_at_pixel_window,
-    pixel_to_camera_xyz,
-    make_point_stamped,
+    get_centroid_from_cloud_bbox,
     transform_point,
 )
 
@@ -27,24 +24,20 @@ class DetectionNode(Node):
         # Parameters
         # ----------------------------
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
-        self.declare_parameter("depth_topic", "/camera/camera/depth/image_rect_raw")
+        self.declare_parameter("cloud_topic", "/camera/camera/depth/color/points")
         self.declare_parameter("camera_info_topic", "/camera/camera/color/camera_info")
-        self.declare_parameter("model_path", "yolov8n.pt")
+        self.declare_parameter("model_path", "best.pt")
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("show_image", True)
         self.declare_parameter("target_frame", "base_link")
-        self.declare_parameter("depth_scale", 0.001)   # uint16 mm -> meters
-        self.declare_parameter("depth_window_size", 5)
 
         image_topic = self.get_parameter("image_topic").value
-        depth_topic = self.get_parameter("depth_topic").value
+        cloud_topic = self.get_parameter("cloud_topic").value
         camera_info_topic = self.get_parameter("camera_info_topic").value
         model_path = self.get_parameter("model_path").value
         conf_threshold = self.get_parameter("conf_threshold").value
         self.show_image = self.get_parameter("show_image").value
         self.target_frame = self.get_parameter("target_frame").value
-        self.depth_scale = float(self.get_parameter("depth_scale").value)
-        self.depth_window_size = int(self.get_parameter("depth_window_size").value)
 
         # ----------------------------
         # Core objects
@@ -59,203 +52,111 @@ class DetectionNode(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         # Latest data buffers
-        self.depth_image = None
+        self.cloud = None
         self.camera_info = None
 
         # ----------------------------
         # Subscribers
         # ----------------------------
         self.rgb_subscription = self.create_subscription(
-            Image,
-            image_topic,
-            self.image_callback,
-            10
+            Image, image_topic, self.image_callback, 10
         )
-
-        self.depth_subscription = self.create_subscription(
-            Image,
-            depth_topic,
-            self.depth_callback,
-            10
+        self.cloud_subscription = self.create_subscription(
+            PointCloud2, cloud_topic, self.cloud_callback, 10
         )
-
         self.camera_info_subscription = self.create_subscription(
-            CameraInfo,
-            camera_info_topic,
-            self.camera_info_callback,
-            10
+            CameraInfo, camera_info_topic, self.camera_info_callback, 10
         )
 
         # ----------------------------
         # Publisher
         # ----------------------------
-        self.pick_point_pub = self.create_publisher(
-            PointStamped,
-            "/detected_pick_point",
-            10
-        )
+        self.pick_point_pub = self.create_publisher(PointStamped, "/detected_pick_point", 10)
 
         # ----------------------------
-        # Logging
+        # Logging / watchdog
         # ----------------------------
         self.get_logger().info("Detection node started.")
-        self.get_logger().info(f"RGB topic: {image_topic}")
-        self.get_logger().info(f"Depth topic: {depth_topic}")
-        self.get_logger().info(f"Camera info topic: {camera_info_topic}")
-        self.get_logger().info(f"Using model: {model_path}")
+        self.get_logger().info(f"RGB topic:    {image_topic}")
+        self.get_logger().info(f"Cloud topic:  {cloud_topic}")
+        self.get_logger().info(f"Using model:  {model_path}")
         self.get_logger().info(f"Target frame: {self.target_frame}")
 
-        # Watchdogs
         self._image_topic = image_topic
-        self._depth_topic = depth_topic
-        self._camera_info_topic = camera_info_topic
-
+        self._cloud_topic = cloud_topic
         self._frames_received = 0
-        self._depth_received = 0
-        self._camera_info_received = 0
-
+        self._cloud_received = 0
         self._watchdog = self.create_timer(5.0, self._watchdog_cb)
 
     def _watchdog_cb(self):
         msgs = []
-
         if self._frames_received == 0:
             msgs.append(f"No RGB images received on '{self._image_topic}'")
-        if self._depth_received == 0:
-            msgs.append(f"No depth images received on '{self._depth_topic}'")
-        if self._camera_info_received == 0:
-            msgs.append(f"No CameraInfo received on '{self._camera_info_topic}'")
-
-        if len(msgs) > 0:
-            for msg in msgs:
-                self.get_logger().warn(msg)
+        if self._cloud_received == 0:
+            msgs.append(f"No PointCloud2 received on '{self._cloud_topic}'")
+        if msgs:
+            for m in msgs:
+                self.get_logger().warn(m)
             self.get_logger().warn(
                 "Run 'ros2 topic list' and override topics with "
-                "--ros-args -p image_topic:=... -p depth_topic:=... -p camera_info_topic:=..."
+                "--ros-args -p image_topic:=... -p cloud_topic:=..."
             )
         else:
             self._watchdog.cancel()
 
+    def cloud_callback(self, msg):
+        self._cloud_received += 1
+        self.cloud = msg
+
     def camera_info_callback(self, msg):
         self.camera_info = msg
-        self._camera_info_received += 1
-
-    def depth_callback(self, msg):
-        self._depth_received += 1
-        try:
-            # Keep native encoding for depth
-            self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-        except Exception as e:
-            self.get_logger().error(f"Failed to convert depth image: {e}")
 
     def image_callback(self, msg):
         self._frames_received += 1
 
         try:
-            # Convert ROS image -> OpenCV image
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as e:
             self.get_logger().error(f"Failed to convert RGB image: {e}")
             return
 
-        # Run YOLO
         detections = self.detector.detect(cv_image)
 
-        self.get_logger().debug(f"Number of detections: {len(detections)}")
-
-        if self.camera_info is None:
-            self.get_logger().debug("No CameraInfo yet; cannot convert detections to 3D")
-        if self.depth_image is None:
-            self.get_logger().debug("No depth image yet; cannot convert detections to 3D")
+        if self.cloud is None or self.camera_info is None:
+            self.get_logger().debug("No cloud/camera_info yet; skipping 3D")
 
         best_pick_point = None
 
         for det in detections:
-            self.get_logger().debug(
-                f"class={det['class_name']}, "
-                f"conf={det['confidence']:.2f}, "
-                f"center={det['center']}, "
-                f"bbox={det['bbox']}"
-            )
-
-            # Only continue if we have what we need for 3D
-            if self.camera_info is None or self.depth_image is None:
+            if self.cloud is None or self.camera_info is None:
                 continue
 
             try:
-                # Compute bbox center
-                u, v = bbox_center(det["bbox"])
-
-                # Get robust depth estimate
-                depth_m = get_depth_at_pixel_window(
-                    self.depth_image,
-                    u,
-                    v,
-                    window_size=self.depth_window_size,
-                    depth_scale=self.depth_scale,
+                pt_cam = get_centroid_from_cloud_bbox(
+                    self.cloud, self.camera_info, det["bbox"]
                 )
 
-                if depth_m is None:
-                    h_d, w_d = self.depth_image.shape[:2]
-                    half = self.depth_window_size // 2
-                    patch = self.depth_image[
-                        max(0, v - half):min(h_d, v + half + 1),
-                        max(0, u - half):min(w_d, u + half + 1),
-                    ]
+                if pt_cam is None:
                     self.get_logger().warn(
-                        f"No valid depth for detection {det['class_name']} at pixel ({u}, {v}) "
-                        f"| depth patch min={int(patch.min())} max={int(patch.max())} "
-                        f"nonzero={int((patch > 0).sum())}/{patch.size} "
-                        f"| depth image shape={self.depth_image.shape} dtype={self.depth_image.dtype}"
+                        f"No valid depth for {det['class_name']} in bbox {det['bbox']}"
                     )
                     continue
 
-                # Pixel -> camera 3D
-                x_cam, y_cam, z_cam = pixel_to_camera_xyz(
-                    u,
-                    v,
-                    depth_m,
-                    self.camera_info
-                )
-
-                # Make PointStamped in camera frame
-                pt_cam = make_point_stamped(
-                    x_cam,
-                    y_cam,
-                    z_cam,
-                    frame_id=self.camera_info.header.frame_id,
-                    stamp=msg.header.stamp
-                )
-
-                # Camera frame -> target/base frame
-                pt_base = transform_point(
-                    self.tf_buffer,
-                    pt_cam,
-                    self.target_frame
-                )
+                pt_base = transform_point(self.tf_buffer, pt_cam, self.target_frame)
 
                 self.get_logger().info(
                     f"[3D] {det['class_name']} | "
-                    f"pixel=({u}, {v}) | "
-                    f"depth={depth_m:.3f} m | "
-                    f"camera=({x_cam:.3f}, {y_cam:.3f}, {z_cam:.3f}) | "
+                    f"camera=({pt_cam.point.x:.3f}, {pt_cam.point.y:.3f}, {pt_cam.point.z:.3f}) | "
                     f"{self.target_frame}=({pt_base.point.x:.3f}, "
                     f"{pt_base.point.y:.3f}, {pt_base.point.z:.3f})"
                 )
 
-                # For v1: choose the highest-confidence valid detection
-                if best_pick_point is None:
+                if best_pick_point is None or det["confidence"] > best_pick_point[0]:
                     best_pick_point = (det["confidence"], pt_base)
-                else:
-                    if det["confidence"] > best_pick_point[0]:
-                        best_pick_point = (det["confidence"], pt_base)
 
             except Exception as e:
-                self.get_logger().warn(
-                    f"Failed 3D conversion for detection {det['class_name']}: {e}"
-                )
+                self.get_logger().warn(f"Failed 3D for {det['class_name']}: {e}")
 
-        # Publish best valid pick point
         if best_pick_point is not None:
             _, pt = best_pick_point
             self.pick_point_pub.publish(pt)
@@ -264,19 +165,11 @@ class DetectionNode(Node):
                 f"({pt.point.x:.3f}, {pt.point.y:.3f}, {pt.point.z:.3f})"
             )
 
-        # Draw and display detections
         if self.show_image:
             vis_image = self.detector.draw_detections(cv_image, detections)
-
-            max_width = 1000
-            max_height = 700
             h, w = vis_image.shape[:2]
-            scale = min(max_width / w, max_height / h)
-            new_width = int(w * scale)
-            new_height = int(h * scale)
-
-            display_image = cv2.resize(vis_image, (new_width, new_height))
-
+            scale = min(1000 / w, 700 / h)
+            display_image = cv2.resize(vis_image, (int(w * scale), int(h * scale)))
             cv2.namedWindow("YOLO Detections", cv2.WINDOW_NORMAL)
             cv2.imshow("YOLO Detections", display_image)
             cv2.waitKey(1)
@@ -285,7 +178,6 @@ class DetectionNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = DetectionNode()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

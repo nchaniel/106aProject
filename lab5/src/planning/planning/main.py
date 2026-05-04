@@ -80,9 +80,10 @@ class UR7e_CubeGrasp(Node):
         )
 
         # Safety offsets
-        x_offset = -0.015
+        x_offset = 0.02
+        y_offset = 0.005
         pre_grasp_z_offset = 0.185
-        grasp_z_offset = 0.092
+        grasp_z_offset = 0.2
         lift_z_offset = 0.185
 
         # Fixed drop-off location for v1
@@ -92,23 +93,23 @@ class UR7e_CubeGrasp(Node):
 
         
         # 1. Move above detected object
-        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx, cy, cz)
+        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx + x_offset, cy + y_offset, cz + pre_grasp_z_offset)
 
-        # # 2. Move down to grasp object
-        # grasp_joints = self.ik_planner.compute_ik(
-        #     self.joint_state,
-        #     cx + x_offset,
-        #     cy,
-        #     cz + grasp_z_offset
-        # )
+        # 2. Move down to grasp object
+        grasp_joints = self.ik_planner.compute_ik(
+             self.joint_state,
+             cx + x_offset,
+             cy,
+             cz + grasp_z_offset
+        )
 
-        # # 3. Lift after grasping
-        # lift_joints = self.ik_planner.compute_ik(
-        #     self.joint_state,
-        #     cx + x_offset,
-        #     cy,
-        #     cz + lift_z_offset
-        # )
+        # 3. Lift after grasping
+        lift_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            cx + x_offset,
+            cy,
+            cz + lift_z_offset
+        )
 
         # # 4. Move above drop location
         # drop_pre_joints = self.ik_planner.compute_ik(
@@ -135,11 +136,28 @@ class UR7e_CubeGrasp(Node):
             self.cube_pose = None
             return
 
-        self.get_logger().info(
-            f"Pre-grasp target: ({cx + x_offset:.3f}, {cy:.3f}, {cz + pre_grasp_z_offset:.3f})"
-        )
+        if grasp_joints is None:
+            self.get_logger().error(
+                f"IK failed for grasp target "
+                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + grasp_z_offset:.3f})"
+            )
+            self.busy = False
+            self.cube_pose = None
+            return
+
+        if lift_joints is None:
+            self.get_logger().error(
+                f"IK failed for lift target "
+                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + lift_z_offset:.3f})"
+            )
+            self.busy = False
+            self.cube_pose = None
+            return
 
         self.job_queue.append(pre_grasp_joints)
+        self.job_queue.append(grasp_joints)
+        self.job_queue.append('toggle_grip')
+        self.job_queue.append(lift_joints)
         self.execute_jobs()
 
 
@@ -151,8 +169,9 @@ class UR7e_CubeGrasp(Node):
                 self.cube_pose = None
                 self.get_logger().info("Home reached. Ready for detection.")
             else:
-                self.get_logger().info("Pick complete. Returning to home.")
-                self._go_home()
+                self.get_logger().info("Pick complete. Staying at final position.")
+                self.busy = False
+                self.cube_pose = None
             return
 
         self.get_logger().info(f"Executing job queue, {len(self.job_queue)} jobs remaining.")

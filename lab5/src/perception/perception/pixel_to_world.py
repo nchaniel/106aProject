@@ -4,122 +4,61 @@ from geometry_msgs.msg import PointStamped
 from tf2_geometry_msgs import do_transform_point
 
 
-def bbox_center(bbox):
+def get_centroid_from_cloud_bbox(cloud_msg, camera_info_msg, bbox):
     """
-    Compute the pixel center of a bounding box.
+    Filter an unorganized PointCloud2 to the points that project into the YOLO
+    bounding box, then return their centroid.
 
-    Args:
-        bbox: [x1, y1, x2, y2]
-
-    Returns:
-        (u, v): integer pixel coordinates
+    Works with both organized and unorganized clouds since it reprojects each
+    3D point to image coords rather than indexing by pixel.
     """
-    x1, y1, x2, y2 = bbox
-    u = int((x1 + x2) / 2.0)
-    v = int((y1 + y2) / 2.0)
-    return u, v
-
-
-def get_depth_at_pixel_window(depth_image, u, v, window_size=5, depth_scale=0.001):
-    """
-    Get a robust depth estimate near pixel (u, v) using a small window.
-
-    Args:
-        depth_image: numpy depth image
-        u, v: pixel coordinates
-        window_size: odd integer window size
-        depth_scale:
-            0.001 if depth image is uint16 in millimeters
-            1.0   if depth image is already float32 in meters
-
-    Returns:
-        depth_meters or None if no valid depth found
-    """
-    if depth_image is None:
+    if cloud_msg is None or camera_info_msg is None:
         return None
 
-    h, w = depth_image.shape[:2]
+    fx = camera_info_msg.k[0]
+    fy = camera_info_msg.k[4]
+    cx = camera_info_msg.k[2]
+    cy = camera_info_msg.k[5]
 
-    if u < 0 or u >= w or v < 0 or v >= h:
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+
+    n = cloud_msg.width * cloud_msg.height
+    if n == 0:
         return None
 
-    half = window_size // 2
+    # Read all points into numpy — x/y/z are the first 3 float32s in each point
+    stride = cloud_msg.point_step // 4  # number of float32s per point
+    data = np.frombuffer(bytes(cloud_msg.data), dtype=np.float32)
+    xyz = data.reshape(n, stride)[:, :3]  # (N, 3)
 
-    u_min = max(0, u - half)
-    u_max = min(w, u + half + 1)
-    v_min = max(0, v - half)
-    v_max = min(h, v + half + 1)
+    # Drop NaN and zero-depth points
+    valid = np.isfinite(xyz).all(axis=1) & (xyz[:, 2] > 0)
+    xyz = xyz[valid]
 
-    patch = depth_image[v_min:v_max, u_min:u_max]
-
-    # Only keep valid positive depth values
-    valid = patch[patch > 0]
-
-    if valid.size == 0:
+    if len(xyz) == 0:
+        print(f"[pixel_to_world] cloud has no valid points at all")
         return None
 
-    depth_raw = np.median(valid)
-    depth_meters = float(depth_raw) * depth_scale
-    return depth_meters
+    # Project to image coordinates using color camera intrinsics
+    u = fx * xyz[:, 0] / xyz[:, 2] + cx
+    v = fy * xyz[:, 1] / xyz[:, 2] + cy
 
+    in_bbox = (u >= x1) & (u <= x2) & (v >= y1) & (v <= y2)
+    xyz_in = xyz[in_bbox]
 
-def pixel_to_camera_xyz(u, v, depth, camera_info):
-    """
-    Back-project a pixel with depth into 3D camera coordinates.
+    if len(xyz_in) == 0:
+        print(f"[pixel_to_world] no cloud points project into bbox {bbox}")
+        return None
 
-    Using CameraInfo.k:
-        [fx,  0, cx,
-         0, fy, cy,
-         0,  0,  1]
-
-    Args:
-        u, v: pixel coordinates
-        depth: depth in meters
-        camera_info: sensor_msgs.msg.CameraInfo
-
-    Returns:
-        (x, y, z) in camera frame
-    """
-    fx = camera_info.k[0]
-    fy = camera_info.k[4]
-    cx = camera_info.k[2]
-    cy = camera_info.k[5]
-
-    if fx == 0.0 or fy == 0.0:
-        raise ValueError("Camera intrinsics invalid: fx or fy is zero")
-
-    x = (u - cx) * depth / fx
-    y = (v - cy) * depth / fy
-    z = depth
-
-    return x, y, z
-
-
-def make_point_stamped(x, y, z, frame_id, stamp):
-    """
-    Create a PointStamped message.
-    """
     pt = PointStamped()
-    pt.header.frame_id = frame_id
-    pt.header.stamp = stamp
-    pt.point.x = float(x)
-    pt.point.y = float(y)
-    pt.point.z = float(z)
+    pt.header = cloud_msg.header
+    pt.point.x = float(np.mean(xyz_in[:, 0]))
+    pt.point.y = float(np.mean(xyz_in[:, 1]))
+    pt.point.z = float(np.mean(xyz_in[:, 2]))
     return pt
 
 
 def transform_point(tf_buffer, point_stamped, target_frame):
-    """
-    Transform a PointStamped into target_frame.
-
-    Args:
-        tf_buffer: tf2_ros.Buffer
-        point_stamped: geometry_msgs.msg.PointStamped
-        target_frame: target frame name, e.g. 'base'
-
-    Returns:
-        transformed PointStamped
-    """
     transform = tf_buffer.lookup_transform(
         target_frame,
         point_stamped.header.frame_id,
