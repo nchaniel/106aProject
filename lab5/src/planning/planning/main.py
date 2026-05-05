@@ -1,20 +1,72 @@
+# NOTE: realsense_launch is commented out in lab5_bringup.launch.py.
+# Start the camera separately before running bringup:
+#   ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=1280x720x30
+# To re-enable camera launch from bringup, uncomment realsense_launch in lab5_bringup.launch.py.
+
 # ROS Libraries
 from std_srvs.srv import Trigger
+from std_msgs.msg import String
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
-from geometry_msgs.msg import PointStamped 
+from geometry_msgs.msg import PointStamped
 from trajectory_msgs.msg import JointTrajectory
 from sensor_msgs.msg import JointState
 
 from planning.ik import IKPlanner
+
+# Per-class grasp offsets. Tune each entry so the gripper clears the object
+# without hitting the table.
+#   x_offset / y_offset      : lateral correction applied to the centroid
+#   pre_grasp_z_offset        : height above centroid for the hover waypoint
+#   grasp_z_offset            : height above centroid where the gripper closes
+#   lift_z_offset             : height above centroid after grasping
+PICK_OFFSETS = {
+    "apple": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.16,
+        "grasp_z_offset":     0.12,
+        "lift_z_offset":      0.185,
+    },
+    "tomato": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.16,
+        "grasp_z_offset":     0.12,
+        "lift_z_offset":      0.185,
+    },
+    "cake": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.15,
+        "lift_z_offset":      0.20,
+    },
+    "strawberry": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.21,
+        "grasp_z_offset":     0.15,
+        "lift_z_offset":      0.20,
+    },
+}
+
+DEFAULT_OFFSETS = {
+    "x_offset":           0.02,
+    "y_offset":           0.005,
+    "pre_grasp_z_offset": 0.16,
+    "grasp_z_offset":     0.12,
+    "lift_z_offset":      0.185,
+}
 
 class UR7e_CubeGrasp(Node):
     def __init__(self):
         super().__init__('cube_grasp')
 
         self.cube_pub = self.create_subscription(PointStamped, '/detected_pick_point', self.cube_callback, 1)
+        self.class_sub = self.create_subscription(String, '/detected_class', self.class_callback, 10)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
 
         self.exec_ac = ActionClient(
@@ -26,6 +78,7 @@ class UR7e_CubeGrasp(Node):
         
         self.busy = False
         self.cube_pose = None
+        self.detected_class = ""
         self.current_plan = None
         self.joint_state = None
 
@@ -40,12 +93,16 @@ class UR7e_CubeGrasp(Node):
         #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
         self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
         self._going_home = False
+        self.gripper_open = True  # assume physical gripper starts open
 
     def joint_state_callback(self, msg: JointState):
         self.joint_state = msg
         if not hasattr(self, '_home_triggered'):
             self._home_triggered = True
             self._go_home()
+
+    def class_callback(self, msg: String):
+        self.detected_class = msg.data
 
     def _go_home(self):
         self._going_home = True
@@ -75,20 +132,21 @@ class UR7e_CubeGrasp(Node):
         cy = self.cube_pose.point.y
         cz = self.cube_pose.point.z
 
+        offsets = PICK_OFFSETS.get(self.detected_class, DEFAULT_OFFSETS)
         self.get_logger().info(
-            f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f}"
+            f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f} "
+            f"[class='{self.detected_class}']"
         )
 
-        # Safety offsets
-        x_offset = 0.02
-        y_offset = 0.005
-        pre_grasp_z_offset = 0.185
-        grasp_z_offset = 0.2
-        lift_z_offset = 0.185
+        x_offset           = offsets["x_offset"]
+        y_offset           = offsets["y_offset"]
+        pre_grasp_z_offset = offsets["pre_grasp_z_offset"]
+        grasp_z_offset     = offsets["grasp_z_offset"]
+        lift_z_offset      = offsets["lift_z_offset"]
 
         # Fixed drop-off location for v1
         drop_x = 0.45
-        drop_y = 0.20
+        drop_y = 0.40
         drop_z = 0.20
 
         
@@ -111,21 +169,21 @@ class UR7e_CubeGrasp(Node):
             cz + lift_z_offset
         )
 
-        # # 4. Move above drop location
-        # drop_pre_joints = self.ik_planner.compute_ik(
-        #     self.joint_state,
-        #     drop_x,
-        #     drop_y,
-        #     drop_z + 0.12
-        # )
+        # 4. Move above drop location
+        drop_pre_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            drop_x,
+            drop_y,
+            drop_z + 0.12
+        )
 
-        # # 5. Move down to drop location
-        # drop_joints = self.ik_planner.compute_ik(
-        #     self.joint_state,
-        #     drop_x,
-        #     drop_y,
-        #     drop_z
-        # )
+        # 5. Move down to drop location
+        drop_joints = self.ik_planner.compute_ik(
+            self.joint_state,
+            drop_x,
+            drop_y,
+            drop_z
+        )
 
         if pre_grasp_joints is None:
             self.get_logger().error(
@@ -158,6 +216,9 @@ class UR7e_CubeGrasp(Node):
         self.job_queue.append(grasp_joints)
         self.job_queue.append('toggle_grip')
         self.job_queue.append(lift_joints)
+        #self.job_queue.append(drop_pre_joints)
+        #self.job_queue.append(drop_joints)
+        self.job_queue.append('toggle_grip')
         self.execute_jobs()
 
 
@@ -208,6 +269,7 @@ class UR7e_CubeGrasp(Node):
         # wait for 2 seconds
         rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
 
+        self.gripper_open = not self.gripper_open
         self.get_logger().info('Gripper toggled.')
         self.execute_jobs()  # Proceed to next job
 
