@@ -1,0 +1,18 @@
+# requirements.txt
+# Python 3.10+  |  pip install -r requirements.txt
+
+numpy
+scipy
+scikit-learn
+opencv-python
+Pillow
+trimesh
+pyrender
+torch
+torchvision
+matplotlib
+
+# macOS offscreen rendering fix (if you get EGL / display errors):
+#   brew install mesa
+#   export PYOPENGL_PLATFORM=osmesa
+#   pip install pyglet==1.5.27
