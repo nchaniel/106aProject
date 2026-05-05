@@ -55,7 +55,7 @@ class UR7e_CubeGrasp(Node):
     def photo_callback(self, msg):
         self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
     def take_photo(self):
-        cv2.imwrite(f'captured_images/captured_image_{self.image_count+1}.jpg', self.frame)
+        cv2.imwrite(f'captured_images3/captured_image_{self.image_count+1}.jpg', self.frame)
         self.get_logger().info(f'Saved image {self.image_count+1}')
         self.image_count +=1
 
@@ -69,6 +69,8 @@ class UR7e_CubeGrasp(Node):
         if self.joint_state is None:
             return
 
+        old_poses = np.load("poses.npy")
+        self.get_logger().info(f"Poses: {old_poses}")
 
         self.cube_pose = cube_pose
         cx, cy, cz = cube_pose.point.x, cube_pose.point.y, cube_pose.point.z
@@ -80,7 +82,8 @@ class UR7e_CubeGrasp(Node):
         num_points = 20    # Number of waypoints for a smooth arc
         
         self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
-    
+        pose_data = [cx, cy, cz, 0, 0, 0, 1]
+
         # Generate angles from 0 to Pi (180 degrees)
         for row in range(2):
             angles = np.linspace(-np.pi/4, np.pi+np.pi/8, num_points)
@@ -109,6 +112,10 @@ class UR7e_CubeGrasp(Node):
 
 
                 # 3. Compute IK for this waypoint
+                self.get_logger().info(f"Pose: \nPosition:{tx}, {ty}, {tz}\nOrientation:{q[0]},{q[1]},{q[2]},{q[3]}")
+                current_pose = np.array([tx, ty, tz, q[0], q[1], q[2], q[3]])
+                pose_data.append(current_pose)
+
                 ik_sol = self.ik_planner.compute_ik(
                     self.joint_state, 
                     tx, ty, tz, 
@@ -125,6 +132,9 @@ class UR7e_CubeGrasp(Node):
         ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
         if ik_sol:
             self.job_queue.append(ik_sol)
+
+        final_poses = np.array(pose_data)
+        np.save('poses.npy', final_poses)
 
         # Start execution
         if self.job_queue:
