@@ -27,7 +27,7 @@ class DetectionNode(Node):
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
         self.declare_parameter("cloud_topic", "/camera/camera/depth/color/points")
         self.declare_parameter("camera_info_topic", "/camera/camera/color/camera_info")
-        self.declare_parameter("model_path", "best.pt")
+        self.declare_parameter("model_path", "updated.pt")
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("show_image", True)
         self.declare_parameter("target_frame", "base_link")

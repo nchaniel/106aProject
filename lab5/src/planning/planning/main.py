@@ -31,10 +31,10 @@ PICK_OFFSETS = {
         "lift_z_offset":      0.185,
     },
     "tomato": {
-        "x_offset":           0.02,
+        "x_offset":           0.015,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.12,
+        "grasp_z_offset":     0.14,
         "lift_z_offset":      0.185,
     },
     "cake": {
@@ -47,8 +47,15 @@ PICK_OFFSETS = {
     "strawberry": {
         "x_offset":           0.02,
         "y_offset":           0.005,
-        "pre_grasp_z_offset": 0.21,
-        "grasp_z_offset":     0.15,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.14,
+        "lift_z_offset":      0.20,
+    },
+    "cherry": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.14,
         "lift_z_offset":      0.20,
     },
 }
@@ -57,7 +64,7 @@ DEFAULT_OFFSETS = {
     "x_offset":           0.02,
     "y_offset":           0.005,
     "pre_grasp_z_offset": 0.16,
-    "grasp_z_offset":     0.12,
+    "grasp_z_offset":     0.14,
     "lift_z_offset":      0.185,
 }
 
@@ -216,23 +223,29 @@ class UR7e_CubeGrasp(Node):
         self.job_queue.append(grasp_joints)
         self.job_queue.append('toggle_grip')
         self.job_queue.append(lift_joints)
-        #self.job_queue.append(drop_pre_joints)
-        #self.job_queue.append(drop_joints)
+        self.job_queue.append(drop_pre_joints)
+        self.job_queue.append(drop_joints)
         self.job_queue.append('toggle_grip')
         self.execute_jobs()
 
 
     def execute_jobs(self):
         if not self.job_queue:
-            if self._going_home:
-                self._going_home = False
-                self.busy = False
+            # If we just finished a pick/place cycle, ALWAYS go home
+            if not self._going_home:
+                self.get_logger().info("Pick/place complete → going home")
+
                 self.cube_pose = None
-                self.get_logger().info("Home reached. Ready for detection.")
-            else:
-                self.get_logger().info("Pick complete. Staying at final position.")
-                self.busy = False
-                self.cube_pose = None
+                self._going_home = True
+                self._go_home()   # <-- THIS is the key change
+                return
+
+            # We arrived home
+            self._going_home = False
+            self.busy = False
+            self.cube_pose = None
+
+            self.get_logger().info("Home reached. Ready for detection.")
             return
 
         self.get_logger().info(f"Executing job queue, {len(self.job_queue)} jobs remaining.")
