@@ -3,6 +3,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 from geometry_msgs.msg import PointStamped
+from std_msgs.msg import String
 
 from cv_bridge import CvBridge
 import cv2
@@ -30,6 +31,7 @@ class DetectionNode(Node):
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("show_image", True)
         self.declare_parameter("target_frame", "base_link")
+        self.declare_parameter("target_class", "")
 
         image_topic = self.get_parameter("image_topic").value
         cloud_topic = self.get_parameter("cloud_topic").value
@@ -38,6 +40,7 @@ class DetectionNode(Node):
         conf_threshold = self.get_parameter("conf_threshold").value
         self.show_image = self.get_parameter("show_image").value
         self.target_frame = self.get_parameter("target_frame").value
+        self.target_class = self.get_parameter("target_class").value
 
         # ----------------------------
         # Core objects
@@ -72,6 +75,7 @@ class DetectionNode(Node):
         # Publisher
         # ----------------------------
         self.pick_point_pub = self.create_publisher(PointStamped, "/detected_pick_point", 10)
+        self.class_pub = self.create_publisher(String, "/detected_class", 10)
 
         # ----------------------------
         # Logging / watchdog
@@ -81,6 +85,7 @@ class DetectionNode(Node):
         self.get_logger().info(f"Cloud topic:  {cloud_topic}")
         self.get_logger().info(f"Using model:  {model_path}")
         self.get_logger().info(f"Target frame: {self.target_frame}")
+        self.get_logger().info(f"Target class: '{self.target_class}' (empty = any)")
 
         self._image_topic = image_topic
         self._cloud_topic = cloud_topic
@@ -128,6 +133,9 @@ class DetectionNode(Node):
         best_pick_point = None
 
         for det in detections:
+            if self.target_class and det["class_name"] != self.target_class:
+                continue
+
             if self.cloud is None or self.camera_info is None:
                 continue
 
@@ -152,16 +160,17 @@ class DetectionNode(Node):
                 )
 
                 if best_pick_point is None or det["confidence"] > best_pick_point[0]:
-                    best_pick_point = (det["confidence"], pt_base)
+                    best_pick_point = (det["confidence"], pt_base, det["class_name"])
 
             except Exception as e:
                 self.get_logger().warn(f"Failed 3D for {det['class_name']}: {e}")
 
         if best_pick_point is not None:
-            _, pt = best_pick_point
+            _, pt, class_name = best_pick_point
+            self.class_pub.publish(String(data=class_name))
             self.pick_point_pub.publish(pt)
             self.get_logger().info(
-                f"Published pick point in {self.target_frame}: "
+                f"Published pick point [{class_name}] in {self.target_frame}: "
                 f"({pt.point.x:.3f}, {pt.point.y:.3f}, {pt.point.z:.3f})"
             )
 

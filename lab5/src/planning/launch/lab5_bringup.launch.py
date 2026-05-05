@@ -18,24 +18,27 @@ def generate_launch_description():
     launch_rviz = LaunchConfiguration("launch_rviz", default="true")
     robot_ip = LaunchConfiguration("robot_ip", default="192.168.1.102")
     shutdown_on_exit = LaunchConfiguration("shutdown_on_exit", default="true")
+    target_class = LaunchConfiguration("target_class", default="")
 
     # -------------------------
     # Includes & Nodes
     # -------------------------
     # RealSense (include rs_launch.py)
-    realsense_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('realsense2_camera'),
-                'launch',
-                'rs_launch.py'
-            )
-        ),
-        launch_arguments={
-            'pointcloud.enable': 'true',
-            'rgb_camera.color_profile': '1280x720x30',
-        }.items(),
-    )
+    # Commented out: start the camera node separately before running bringup:
+    #   ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=1280x720x30
+    # realsense_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         os.path.join(
+    #             get_package_share_directory('realsense2_camera'),
+    #             'launch',
+    #             'rs_launch.py'
+    #         )
+    #     ),
+    #     launch_arguments={
+    #         'pointcloud.enable': 'true',
+    #         'rgb_camera.color_profile': '1280x720x30',
+    #     }.items(),
+    # )
 
 
     # Perception node
@@ -43,7 +46,8 @@ def generate_launch_description():
         package='perception',
         executable='detection_node',
         name='detection_node',
-        output='screen'
+        output='screen',
+        parameters=[{'target_class': target_class}]
     )
 
     # Planning TF node
@@ -100,7 +104,7 @@ def generate_launch_description():
     return LaunchDescription([
 
         # Actions
-        realsense_launch,
+        # realsense_launch,
         perception_node,
         planning_tf_node,
         moveit_launch,
