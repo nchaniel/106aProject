@@ -25,7 +25,7 @@ from planning.ik import IKPlanner
 #   lift_z_offset             : height above centroid after grasping
 PICK_OFFSETS = {
     "apple": {
-        "x_offset":           0.02,
+        "x_offset":           0.01,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
         "grasp_z_offset":     0.125,
@@ -179,23 +179,23 @@ class UR7e_CubeGrasp(Node):
 
         # 2. Move down to grasp object
         grasp_joints = self.ik_planner.compute_ik(
-             self.joint_state,
+             pre_grasp_joints, # chaining the ik helps with accuracy a lot
              cx + x_offset,
-             cy,
+             cy+ y_offset,
              cz + grasp_z_offset
         )
 
         # 3. Lift after grasping
         lift_joints = self.ik_planner.compute_ik(
-            self.joint_state,
+            grasp_joints,
             cx + x_offset,
-            cy,
+            cy+y_offset,
             cz + lift_z_offset
         )
 
         # 4. Move above drop location
         drop_pre_joints = self.ik_planner.compute_ik(
-            self.joint_state,
+            lift_joints,
             drop_x,
             drop_y,
             drop_z + 0.2
@@ -203,7 +203,7 @@ class UR7e_CubeGrasp(Node):
 
         # 5. Move down to drop location
         drop_joints = self.ik_planner.compute_ik(
-            self.joint_state,
+            drop_pre_joints,
             drop_x,
             drop_y,
             drop_z + 0.15
