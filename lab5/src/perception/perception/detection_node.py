@@ -27,7 +27,7 @@ class DetectionNode(Node):
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
         self.declare_parameter("cloud_topic", "/camera/camera/depth/color/points")
         self.declare_parameter("camera_info_topic", "/camera/camera/color/camera_info")
-        self.declare_parameter("model_path", "best.pt")
+        self.declare_parameter("model_path", "updated.pt")
         self.declare_parameter("conf_threshold", 0.5)
         self.declare_parameter("show_image", True)
         self.declare_parameter("target_frame", "base_link")
@@ -58,6 +58,9 @@ class DetectionNode(Node):
         self.cloud = None
         self.camera_info = None
 
+        self.plate_position = None
+        self.plate_radius = 0.14  # tune this (meters)
+
         # ----------------------------
         # Subscribers
         # ----------------------------
@@ -75,6 +78,7 @@ class DetectionNode(Node):
         # Publisher
         # ----------------------------
         self.pick_point_pub = self.create_publisher(PointStamped, "/detected_pick_point", 10)
+        self.plate_point_pub = self.create_publisher(PointStamped, "/detected_plate_point", 10)
         self.class_pub = self.create_publisher(String, "/detected_class", 10)
 
         # ----------------------------
@@ -133,6 +137,7 @@ class DetectionNode(Node):
         best_pick_point = None
 
         for det in detections:
+            class_name = det["class_name"]
             if self.target_class and det["class_name"] != self.target_class:
                 continue
 
@@ -152,13 +157,22 @@ class DetectionNode(Node):
 
                 pt_base = transform_point(self.tf_buffer, pt_cam, self.target_frame)
 
-                self.get_logger().info(
-                    f"[3D] {det['class_name']} | "
-                    f"camera=({pt_cam.point.x:.3f}, {pt_cam.point.y:.3f}, {pt_cam.point.z:.3f}) | "
-                    f"{self.target_frame}=({pt_base.point.x:.3f}, "
-                    f"{pt_base.point.y:.3f}, {pt_base.point.z:.3f})"
-                )
+                if class_name == "plate":
+                    self.plate_point_pub.publish(pt_base)
+                    self.plate_position = pt_base
+                    self.get_logger().info("Published PLATE")
+                    continue
 
+                if self.plate_position is not None:
+                    dx = pt_base.point.x - self.plate_position.point.x
+                    dy = pt_base.point.y - self.plate_position.point.y
+                    dist = (dx**2 + dy**2) ** 0.5
+
+                    if dist < self.plate_radius:
+                        self.get_logger().info(f"Ignoring {class_name} inside plate")
+                        continue
+
+                
                 if best_pick_point is None or det["confidence"] > best_pick_point[0]:
                     best_pick_point = (det["confidence"], pt_base, det["class_name"])
 
