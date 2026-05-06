@@ -75,6 +75,7 @@ class DetectionNode(Node):
         # Publisher
         # ----------------------------
         self.pick_point_pub = self.create_publisher(PointStamped, "/detected_pick_point", 10)
+        self.plate_point_pub = self.create_publisher(PointStamped, "/detected_plate_point", 10)
         self.class_pub = self.create_publisher(String, "/detected_class", 10)
 
         # ----------------------------
@@ -133,6 +134,7 @@ class DetectionNode(Node):
         best_pick_point = None
 
         for det in detections:
+            class_name = det["class_name"]
             if self.target_class and det["class_name"] != self.target_class:
                 continue
 
@@ -152,15 +154,13 @@ class DetectionNode(Node):
 
                 pt_base = transform_point(self.tf_buffer, pt_cam, self.target_frame)
 
-                self.get_logger().info(
-                    f"[3D] {det['class_name']} | "
-                    f"camera=({pt_cam.point.x:.3f}, {pt_cam.point.y:.3f}, {pt_cam.point.z:.3f}) | "
-                    f"{self.target_frame}=({pt_base.point.x:.3f}, "
-                    f"{pt_base.point.y:.3f}, {pt_base.point.z:.3f})"
-                )
+                if class_name == "plate":
+                    self.plate_point_pub.publish(pt_base)
+                    self.get_logger().info("Published PLATE")
 
-                if best_pick_point is None or det["confidence"] > best_pick_point[0]:
-                    best_pick_point = (det["confidence"], pt_base, det["class_name"])
+                else:
+                    if best_pick_point is None or det["confidence"] > best_pick_point[0]:
+                        best_pick_point = (det["confidence"], pt_base, det["class_name"])
 
             except Exception as e:
                 self.get_logger().warn(f"Failed 3D for {det['class_name']}: {e}")

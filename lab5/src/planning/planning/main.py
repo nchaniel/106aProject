@@ -4,6 +4,7 @@
 # To re-enable camera launch from bringup, uncomment realsense_launch in lab5_bringup.launch.py.
 
 # ROS Libraries
+import tf2_ros
 from std_srvs.srv import Trigger
 from std_msgs.msg import String
 import rclpy
@@ -27,7 +28,7 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.12,
+        "grasp_z_offset":     0.125,
         "lift_z_offset":      0.185,
     },
     "tomato": {
@@ -75,6 +76,7 @@ class UR7e_CubeGrasp(Node):
         self.cube_pub = self.create_subscription(PointStamped, '/detected_pick_point', self.cube_callback, 1)
         self.class_sub = self.create_subscription(String, '/detected_class', self.class_callback, 10)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
+        self.plate_sub = self.create_subscription(PointStamped,'/detected_plate_point',self.plate_callback,10)
 
         self.exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -85,6 +87,7 @@ class UR7e_CubeGrasp(Node):
         
         self.busy = False
         self.cube_pose = None
+        self.plate_pose = None
         self.detected_class = ""
         self.current_plan = None
         self.joint_state = None
@@ -101,7 +104,6 @@ class UR7e_CubeGrasp(Node):
         self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
         self._going_home = False
         self.gripper_open = True  # assume physical gripper starts open
-
     def joint_state_callback(self, msg: JointState):
         self.joint_state = msg
         if not hasattr(self, '_home_triggered'):
@@ -122,27 +124,46 @@ class UR7e_CubeGrasp(Node):
         goal.position = self._home_joints
         self.job_queue.append(goal)
         self.execute_jobs()
+    def plate_callback(self, msg: PointStamped):
+        self.plate_pose = msg
+        self.get_logger().info("Plate updated")
+
 
     def cube_callback(self, pick_pose):
-        if self.busy or self.cube_pose is not None:
+        self.get_logger().info(
+            f"cube_callback fired | busy={self.busy} plate={self.plate_pose is not None}"
+        )
+        if self.busy:
             return
 
         if self.joint_state is None:
             self.get_logger().debug("No joint state yet, cannot proceed")
             return
+        # Detected point in base_link frame
+        if self.plate_pose is None:
+            self.get_logger().error("No plate detected yet!")
+            self.busy = False
+            self.cube_pose = None
+            return
 
         self.busy = True
         self.cube_pose = pick_pose
 
-        # Detected point in base_link frame
         cx = self.cube_pose.point.x
         cy = self.cube_pose.point.y
         cz = self.cube_pose.point.z
+
+        drop_x = self.plate_pose.point.x
+        drop_y = self.plate_pose.point.y
+        drop_z = self.plate_pose.point.z
 
         offsets = PICK_OFFSETS.get(self.detected_class, DEFAULT_OFFSETS)
         self.get_logger().info(
             f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f} "
             f"[class='{self.detected_class}']"
+        )
+        self.get_logger().info(
+            f"Using detected place point: x={drop_x:.3f}, y={drop_y:.3f}, z={drop_z:.3f}"
         )
 
         x_offset           = offsets["x_offset"]
@@ -151,10 +172,6 @@ class UR7e_CubeGrasp(Node):
         grasp_z_offset     = offsets["grasp_z_offset"]
         lift_z_offset      = offsets["lift_z_offset"]
 
-        # Fixed drop-off location for v1
-        drop_x = 0.45
-        drop_y = 0.40
-        drop_z = 0.20
 
         
         # 1. Move above detected object
@@ -181,7 +198,7 @@ class UR7e_CubeGrasp(Node):
             self.joint_state,
             drop_x,
             drop_y,
-            drop_z + 0.12
+            drop_z + 0.2
         )
 
         # 5. Move down to drop location
@@ -189,7 +206,7 @@ class UR7e_CubeGrasp(Node):
             self.joint_state,
             drop_x,
             drop_y,
-            drop_z
+            drop_z + 0.15
         )
 
         if pre_grasp_joints is None:
