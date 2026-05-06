@@ -63,7 +63,7 @@ class IKPlanner(Node):
         ik_req.ik_request.avoid_collisions = True
         ik_req.ik_request.timeout = Duration(sec=5)
         ik_req.ik_request.group_name = 'ur_manipulator'
-        #ik_req.ik_request.ik_link_name = 'wrist_3_joint'
+        #ik_req.ik_request.ik_link_name = 'wrist_3_link'
         ik_req.ik_request.robot_state.joint_state = current_joint_state
         ik_req.ik_request.pose_stamped = pose
 

@@ -80,6 +80,14 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Arm circler node (runs first; publishes /start_pick_place on Enter)
+    arm_circler_node = Node(
+        package='planning',
+        executable='circler',
+        name='arm_circler',
+        output='screen'
+    )
+
     # Main pick/place node
     main_node = Node(
         package='planning',
@@ -109,6 +117,7 @@ def generate_launch_description():
         planning_tf_node,
         moveit_launch,
         ik_planner_node,
+        arm_circler_node,
         main_node,
 
         # Global handler (keep at end)

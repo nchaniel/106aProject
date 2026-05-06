@@ -6,7 +6,7 @@
 # ROS Libraries
 import tf2_ros
 from std_srvs.srv import Trigger
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -24,6 +24,7 @@ import cv2
 from sensor_msgs.msg import Image
 import sys
 import select
+from scipy.spatial.transform import Rotation as R
 
 # Per-class grasp offsets. Tune each entry so the gripper clears the object
 # without hitting the table.
@@ -50,7 +51,7 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.15,
+        "grasp_z_offset":     0.14,
         "lift_z_offset":      0.20,
     },
     "strawberry": {
@@ -61,6 +62,20 @@ PICK_OFFSETS = {
         "lift_z_offset":      0.20,
     },
     "cherry": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.14,
+        "lift_z_offset":      0.20,
+    },
+    "grape": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.14,
+        "lift_z_offset":      0.20,
+    },
+    "blueberry": {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
@@ -92,7 +107,10 @@ class UR7e_CubeGrasp(Node):
         )
 
         self.gripper_cli = self.create_client(Trigger, '/toggle_gripper')
-        
+
+        self.pick_place_enabled = False
+        self._start_sub = self.create_subscription(Bool, '/start_pick_place', self._on_start_pick_place, 1)
+
         self.busy = False
         self.cube_pose = None
         self.plate_pose = None
@@ -111,6 +129,8 @@ class UR7e_CubeGrasp(Node):
         #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
         self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
         self._going_home = False
+        self._refining = False        # True from pre-pregrasp dispatch until refined centroid is used
+        self._at_pre_pregrasp = False # True only after the arm has physically arrived at pre-pregrasp
         self.gripper_open = True  # assume physical gripper starts open
 
         # Image Taking
@@ -125,7 +145,7 @@ class UR7e_CubeGrasp(Node):
         self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
     def take_photo(self):
-        cv2.imwrite(f'captured_images/captured_image_{self.image_count+1}.jpg', self.frame)
+        cv2.imwrite(f'captured_images1/captured_image_{self.image_count+1}.jpg', self.frame)
         self.get_logger().info(f'Saved image {self.image_count+1}')
         self.image_count +=1
 
@@ -134,6 +154,11 @@ class UR7e_CubeGrasp(Node):
         if not hasattr(self, '_home_triggered'):
             self._home_triggered = True
             self._go_home()
+
+    def _on_start_pick_place(self, msg: Bool):
+        if msg.data and not self.pick_place_enabled:
+            self.pick_place_enabled = True
+            self.get_logger().info("Pick-and-place mode activated.")
 
     def class_callback(self, msg: String):
         self.detected_class = msg.data
@@ -155,120 +180,83 @@ class UR7e_CubeGrasp(Node):
 
 
     def cube_callback(self, pick_pose):
-        self.get_logger().info("\nSet up final dish onto a plate below the camera and then press ENTER. (Ctrl+C to cancel)")
-        while rclpy.ok():
-            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                line = sys.stdin.readline()
-                break
-            rclpy.spin_once(self, timeout_sec=0.1)
-
-        #------------------------------------------------
+        if not self.pick_place_enabled:
+            return
 
         self.get_logger().info(
-            f"cube_callback fired | busy={self.busy} plate={self.plate_pose is not None}"
+            f"cube_callback fired | busy={self.busy} refining={self._refining} plate={self.plate_pose is not None}"
         )
+
+        # Phase 2: arm has physically arrived at pre-pregrasp — use the fresh centroid.
+        if self._refining and self._at_pre_pregrasp:
+            self._on_refined_detection(pick_pose)
+            return
+
+        # Still moving to pre-pregrasp — ignore detections.
+        if self._refining:
+            return
+
         if self.busy:
             return
 
         if self.joint_state is None:
             self.get_logger().debug("No joint state yet, cannot proceed")
             return
-        # Detected point in base_link frame
+
         if self.plate_pose is None:
             self.get_logger().error("No plate detected yet!")
-            self.busy = False
-            self.cube_pose = None
             return
 
         self.busy = True
         self.cube_pose = pick_pose
 
-        cx = self.cube_pose.point.x
-        cy = self.cube_pose.point.y
-        cz = self.cube_pose.point.z
+        cx = pick_pose.point.x
+        cy = pick_pose.point.y
+        cz = pick_pose.point.z
+
+        self.get_logger().info(
+            f"Initial pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f} "
+            f"[class='{self.detected_class}'] — moving to pre-pregrasp"
+        )
+
+        # Move directly above the object so the camera gets a centered, undistorted
+        # view before committing to the final grasp trajectory.
+        pre_pre_grasp_joints = self.ik_planner.compute_ik(
+            self.joint_state, cx, cy, cz + 0.5
+        )
+
+        if pre_pre_grasp_joints is None:
+            self.get_logger().error(
+                f"IK failed for pre-pregrasp ({cx:.3f}, {cy:.3f}, {cz + 0.5:.3f})"
+            )
+            self.busy = False
+            self.cube_pose = None
+            return
+
+        self._refining = True
+        self.job_queue.append(pre_pre_grasp_joints)
+        self.execute_jobs()
+
+    def _on_refined_detection(self, pick_pose):
+        """Called once the arm has reached pre-pregrasp and a fresh centroid is available."""
+        self._refining = False
+        self._at_pre_pregrasp = False
+
+        cx = pick_pose.point.x
+        cy = pick_pose.point.y
+        cz = pick_pose.point.z
 
         drop_x = self.plate_pose.point.x
         drop_y = self.plate_pose.point.y
         drop_z = self.plate_pose.point.z
 
-        # -------------------------------------------- 
-        # --- Orbit Parameters ---
-        tilt_distance = 0.12
-        radius = 0.15     # Distance from the cube in meters
-        height = 0.3      # Height above the cube
-        num_points = 20    # Number of waypoints for a smooth arc
-        
-        self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
-        pose_data = [cx, cy, cz, 0, 0, 0, 1]
-
-        # Generate angles from 0 to Pi (180 degrees)
-        for row in range(2):
-            angles = np.linspace(-np.pi/4, np.pi+np.pi/8, num_points)
-            if row == 1:
-                angles = np.flip(angles)
-            for theta in angles:
-                # 1. Calculate Cartesian Position (Orbiting in the XY plane)
-                tx = cx + radius * np.cos(theta)
-                ty = cy + radius * np.sin(theta)
-                tz = cz + height
-
-
-                # 2. Calculate "Look-At" Orientation
-                # We want the camera's Z-axis (optical axis) to point at the cube.
-                # A simple approach for a top-down orbit:
-                # Rotate around Z by (theta + pi) to face inward, 
-                # then tilt down (pi around Y) to look at the table.
-                
-                # This creates a rotation matrix representing the camera facing the center
-                rot_z = R.from_euler('z', theta-np.pi/2) 
-                rot_y = R.from_euler('y', np.pi) # Points the gripper/camera down
-                tilt_angle = np.arctan2(radius + tilt_distance, height)
-                rot_x = R.from_euler('x', tilt_angle)
-                combined_rot = rot_z * rot_y * rot_x
-                q = combined_rot.as_quat() # [x, y, z, w]'''
-
-
-                # 3. Compute IK for this waypoint
-                self.get_logger().info(f"Pose: \nPosition:{tx}, {ty}, {tz}\nOrientation:{q[0]},{q[1]},{q[2]},{q[3]}")
-                current_pose = np.array([tx, ty, tz, q[0], q[1], q[2], q[3]])
-                pose_data.append(current_pose)
-
-                ik_sol = self.ik_planner.compute_ik(
-                    self.joint_state, 
-                    tx, ty, tz, 
-                    qx=q[0], qy=q[1], qz=q[2], qw=q[3]
-                )
-
-                if ik_sol:
-                    self.job_queue.append(ik_sol)
-                else:
-                    self.get_logger().warn(f"IK failed for theta {theta}")
-            height = 0.2
-            tilt_distance += 0.05
-
-        ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
-        if ik_sol:
-            self.job_queue.append(ik_sol)
-
-        final_poses = np.array(pose_data)
-        np.save('poses.npy', final_poses)
-
-        #--------------------------------------------
-        self.get_logger().info("\nPress ENTER to begin pick and place. (Ctrl+C to cancel)")
-        while rclpy.ok():
-            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                line = sys.stdin.readline()
-                break
-            rclpy.spin_once(self, timeout_sec=0.1)
-        #--------------------------------------------
-
         offsets = PICK_OFFSETS.get(self.detected_class, DEFAULT_OFFSETS)
         self.get_logger().info(
-            f"Using detected pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f} "
+            f"Refined pick point: x={cx:.3f}, y={cy:.3f}, z={cz:.3f} "
             f"[class='{self.detected_class}']"
         )
         self.get_logger().info(
-            f"Using detected place point: x={drop_x:.3f}, y={drop_y:.3f}, z={drop_z:.3f}"
+            f"Place point: x={drop_x:.3f}, y={drop_y:.3f}, z={drop_z:.3f}"
         )
 
         x_offset           = offsets["x_offset"]
@@ -277,47 +265,26 @@ class UR7e_CubeGrasp(Node):
         grasp_z_offset     = offsets["grasp_z_offset"]
         lift_z_offset      = offsets["lift_z_offset"]
 
-
-        
-        # 1. Move above detected object
-        pre_grasp_joints = self.ik_planner.compute_ik(self.joint_state, cx + x_offset, cy + y_offset, cz + pre_grasp_z_offset)
-
-        # 2. Move down to grasp object
+        # Seed from current joint state (arm is now at pre-pregrasp position).
+        pre_grasp_joints = self.ik_planner.compute_ik(
+            self.joint_state, cx + x_offset, cy + y_offset, cz + pre_grasp_z_offset
+        )
         grasp_joints = self.ik_planner.compute_ik(
-             pre_grasp_joints, # chaining the ik helps with accuracy a lot
-             cx + x_offset,
-             cy+ y_offset,
-             cz + grasp_z_offset
+            pre_grasp_joints, cx + x_offset, cy + y_offset, cz + grasp_z_offset
         )
-
-        # 3. Lift after grasping
         lift_joints = self.ik_planner.compute_ik(
-            grasp_joints,
-            cx + x_offset,
-            cy+y_offset,
-            cz + lift_z_offset
+            grasp_joints, cx + x_offset, cy + y_offset, cz + lift_z_offset
         )
-
-        # 4. Move above drop location
         drop_pre_joints = self.ik_planner.compute_ik(
-            lift_joints,
-            drop_x,
-            drop_y,
-            drop_z + 0.2
+            lift_joints, drop_x, drop_y, drop_z + 0.2
         )
-
-        # 5. Move down to drop location
         drop_joints = self.ik_planner.compute_ik(
-            drop_pre_joints,
-            drop_x,
-            drop_y,
-            drop_z + 0.15
+            drop_pre_joints, drop_x, drop_y, drop_z + 0.15
         )
 
         if pre_grasp_joints is None:
             self.get_logger().error(
-                f"IK failed for pre-grasp target "
-                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + pre_grasp_z_offset:.3f})"
+                f"IK failed for pre-grasp ({cx + x_offset:.3f}, {cy + y_offset:.3f}, {cz + pre_grasp_z_offset:.3f})"
             )
             self.busy = False
             self.cube_pose = None
@@ -325,8 +292,7 @@ class UR7e_CubeGrasp(Node):
 
         if grasp_joints is None:
             self.get_logger().error(
-                f"IK failed for grasp target "
-                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + grasp_z_offset:.3f})"
+                f"IK failed for grasp ({cx + x_offset:.3f}, {cy + y_offset:.3f}, {cz + grasp_z_offset:.3f})"
             )
             self.busy = False
             self.cube_pose = None
@@ -334,8 +300,7 @@ class UR7e_CubeGrasp(Node):
 
         if lift_joints is None:
             self.get_logger().error(
-                f"IK failed for lift target "
-                f"({cx + x_offset:.3f}, {cy:.3f}, {cz + lift_z_offset:.3f})"
+                f"IK failed for lift ({cx + x_offset:.3f}, {cy + y_offset:.3f}, {cz + lift_z_offset:.3f})"
             )
             self.busy = False
             self.cube_pose = None
@@ -353,13 +318,16 @@ class UR7e_CubeGrasp(Node):
 
     def execute_jobs(self):
         if not self.job_queue:
-            # If we just finished a pick/place cycle, ALWAYS go home
+            if self._refining:
+                self._at_pre_pregrasp = True
+                self.get_logger().info("Pre-pregrasp reached. Waiting for refined centroid...")
+                return
+
             if not self._going_home:
                 self.get_logger().info("Pick/place complete → going home")
-
                 self.cube_pose = None
                 self._going_home = True
-                self._go_home()   # <-- THIS is the key change
+                self._go_home()
                 return
 
             # We arrived home

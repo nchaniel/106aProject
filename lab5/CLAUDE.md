@@ -3,8 +3,10 @@
 ## Current Objective
 Pick up a **user-specified object class** (e.g. "apple") from the table using YOLO detection and place it onto a **detected plate**. The plate is detected in the same YOLO pipeline and its 3D centroid is published separately. The arm must:
 1. Wait at a fixed home/observation pose until both an object centroid and a plate centroid have been published.
-2. Execute a 7-step grasp sequence (hover → descend → grip → lift → move over plate → lower → release).
-3. Return to home automatically and wait for the next detection.
+2. Move to a **pre-pregrasp position** directly above the initial centroid (`cz + 0.5 m`) so the camera gets an undistorted centered view.
+3. Recalculate the object centroid from this better vantage point.
+4. Execute a 7-step grasp sequence using the refined centroid (hover → descend → grip → lift → move over plate → lower → release).
+5. Return to home automatically and wait for the next detection.
 
 The `target_class` launch argument (default: empty = highest-confidence detection) selects which class to pick. The plate is excluded from pick candidates by a radius filter in `detection_node.py`.
 
@@ -71,19 +73,33 @@ RealSense Camera (started separately)
 ### 3. IK chaining
 Each `compute_ik()` call uses the *previous step's joint solution* as the seed, not the live arm pose. This keeps the solver in a locally consistent region and prevents elbow flips between adjacent waypoints.
 
-### 4. All IK before any motion
-All 5 IK calls (pre-grasp, grasp, lift, drop-pre, drop) are computed upfront in `cube_callback` before any job is queued. IK failure aborts early without moving the arm.
+### 4. Two-phase centroid refinement
+Objects at the edge of the camera's field of view produce distorted depth centroids. To correct this:
+- **Phase 1** (`cube_callback`): compute IK for `(cx, cy, cz + 0.5)` — directly above the rough centroid, no offsets. Queue only that one waypoint and set `_refining = True`.
+- **Phase 2** (`_on_refined_detection`): once the arm arrives (`_at_pre_pregrasp = True`), the next detection fires with a better-centered camera view. That centroid is used with full offsets to compute and queue the remaining 5 IK steps.
 
-### 5. Async trajectory execution
+Offsets in `PICK_OFFSETS` are applied **only to the refined centroid** from phase 2, not the initial detection.
+
+### 5. `_refining` / `_at_pre_pregrasp` sentinels
+`execute_jobs()` now has three empty-queue states:
+- `_refining=True, _at_pre_pregrasp=False` → still moving to pre-pregrasp; detections ignored
+- `_refining=True, _at_pre_pregrasp=True` → arm arrived; next `cube_callback` fires `_on_refined_detection`
+- `_going_home=False` → pick/place done; chain into `_go_home()`
+- `_going_home=True` → home reached; clear `busy`
+
+### 6. Async trajectory execution
 `_execute_joint_trajectory` → `_on_goal_sent` → `_on_exec_done` → `execute_jobs()`. Non-blocking — the ROS spin loop is never stalled waiting for a trajectory.
 
-### 6. `_going_home` sentinel
+### 7. `_going_home` sentinel
 When the job queue empties, `execute_jobs()` checks `_going_home`:
 - `False` → pick/place just finished; automatically chain into `_go_home()`
 - `True` → home reached; clear `busy` and wait for next detection
 
-### 7. Topic ordering race condition
+### 8. Topic ordering race condition
 `/detected_class` **must** arrive before `/detected_pick_point` or the per-class offsets in `PICK_OFFSETS` silently fall back to `DEFAULT_OFFSETS`.
+
+### 9. Plate always published regardless of `target_class`
+In `detection_node.py`, the `target_class` filter explicitly exempts `"plate"` so the plate centroid is always published on `/detected_plate_point` even when a specific object class is targeted.
 
 ---
 
@@ -115,7 +131,7 @@ PICK_OFFSETS = {
 DEFAULT_OFFSETS = { "x_offset": 0.02, "y_offset": 0.005, "pre_grasp_z_offset": 0.16, "grasp_z_offset": 0.14, "lift_z_offset": 0.185 }
 ```
 
-All offsets are added to the detected centroid (`cz` is the table surface height at the object). Tune `grasp_z_offset` if the gripper misses (too high) or hits the table (too low).
+All offsets are applied to the **refined centroid** — the one captured after the arm moves to pre-pregrasp above the object. Tune `grasp_z_offset` if the gripper misses (too high) or hits the table (too low).
 
 Drop pose: `drop_z + 0.2` for clearance hover, `drop_z + 0.15` for the release point.
 
@@ -158,3 +174,4 @@ YOLO model weights: `best.pt` (fine-tuned), `updated.pt`, `yolov8n.pt` — all a
 - Camera launch is **commented out** in `lab5_bringup.launch.py` — must be started separately.
 - `drop_pre_joints` and `drop_joints` IK failures are **not checked** before enqueueing (`None` would be passed to `plan_to_joints`). If IK fails for a drop waypoint, the arm will error mid-sequence.
 - Gripper state (`self.gripper_open`) is assumed to start open; gets out of sync if the gripper is physically closed at startup.
+- If the object moves or is removed after the arm reaches pre-pregrasp, the refined detection will use its new/absent position. The arm will wait indefinitely if no detection arrives after pre-pregrasp.
