@@ -166,7 +166,7 @@ class LiveSegmenter:
         self._frame = None
         self._running = True
 
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="live_segmenter")
+        self._thread = threading.Thread(target=self._loop, name="live_segmenter")
         self._thread.start()
         print("[LiveSegmenter] Stream thread started.")
 
@@ -179,6 +179,7 @@ class LiveSegmenter:
     def stop(self):
         self._running = False
         self._frame_ready.set()  # unblock thread if it's waiting
+        self._thread.join(timeout=10.0)  # wait for inference to finish before library teardown
         cv2.destroyAllWindows()
 
     def _loop(self):
