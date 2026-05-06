@@ -17,6 +17,14 @@ from sensor_msgs.msg import JointState
 
 from planning.ik import IKPlanner
 
+# Image taking
+import numpy as np
+from cv_bridge import CvBridge
+import cv2
+from sensor_msgs.msg import Image
+import sys
+import select
+
 # Per-class grasp offsets. Tune each entry so the gripper clears the object
 # without hitting the table.
 #   x_offset / y_offset      : lateral correction applied to the centroid
@@ -148,6 +156,23 @@ class UR7e_CubeGrasp(Node):
         self._refining = False        # True from pre-pregrasp dispatch until refined centroid is used
         self._at_pre_pregrasp = False # True only after the arm has physically arrived at pre-pregrasp
         self.gripper_open = True  # assume physical gripper starts open
+
+        # Image Taking
+        self.subscription = self.create_subscription(Image,'/camera/camera/color/image_raw',self.photo_callback,10)
+        self.bridge = CvBridge()
+        self.image_count = 0
+        self.frame = None
+
+
+
+    def photo_callback(self, msg):
+        self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+    def take_photo(self):
+        cv2.imwrite(f'captured_images/captured_image_{self.image_count+1}.jpg', self.frame)
+        self.get_logger().info(f'Saved image {self.image_count+1}')
+        self.image_count +=1
+
     def joint_state_callback(self, msg: JointState):
         self.joint_state = msg
         # _home_triggered is created lazily on first callback, so _go_home() fires
@@ -180,6 +205,15 @@ class UR7e_CubeGrasp(Node):
 
 
     def cube_callback(self, pick_pose):
+        self.get_logger().info("\nSet up final dish onto a plate below the camera and then press ENTER. (Ctrl+C to cancel)")
+        while rclpy.ok():
+            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                line = sys.stdin.readline()
+                break
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+        #------------------------------------------------
+
         self.get_logger().info(
             f"cube_callback fired | busy={self.busy} refining={self._refining} plate={self.plate_pose is not None}"
         )
@@ -251,6 +285,77 @@ class UR7e_CubeGrasp(Node):
         drop_x = self.plate_pose.point.x
         drop_y = self.plate_pose.point.y
         drop_z = self.plate_pose.point.z
+
+        # -------------------------------------------- 
+        # --- Orbit Parameters ---
+        tilt_distance = 0.12
+        radius = 0.15     # Distance from the cube in meters
+        height = 0.3      # Height above the cube
+        num_points = 20    # Number of waypoints for a smooth arc
+        
+        self.get_logger().info(f"Generating 180-degree orbit around: {cx}, {cy}, {cz}")
+        pose_data = [cx, cy, cz, 0, 0, 0, 1]
+
+        # Generate angles from 0 to Pi (180 degrees)
+        for row in range(2):
+            angles = np.linspace(-np.pi/4, np.pi+np.pi/8, num_points)
+            if row == 1:
+                angles = np.flip(angles)
+            for theta in angles:
+                # 1. Calculate Cartesian Position (Orbiting in the XY plane)
+                tx = cx + radius * np.cos(theta)
+                ty = cy + radius * np.sin(theta)
+                tz = cz + height
+
+
+                # 2. Calculate "Look-At" Orientation
+                # We want the camera's Z-axis (optical axis) to point at the cube.
+                # A simple approach for a top-down orbit:
+                # Rotate around Z by (theta + pi) to face inward, 
+                # then tilt down (pi around Y) to look at the table.
+                
+                # This creates a rotation matrix representing the camera facing the center
+                rot_z = R.from_euler('z', theta-np.pi/2) 
+                rot_y = R.from_euler('y', np.pi) # Points the gripper/camera down
+                tilt_angle = np.arctan2(radius + tilt_distance, height)
+                rot_x = R.from_euler('x', tilt_angle)
+                combined_rot = rot_z * rot_y * rot_x
+                q = combined_rot.as_quat() # [x, y, z, w]'''
+
+
+                # 3. Compute IK for this waypoint
+                self.get_logger().info(f"Pose: \nPosition:{tx}, {ty}, {tz}\nOrientation:{q[0]},{q[1]},{q[2]},{q[3]}")
+                current_pose = np.array([tx, ty, tz, q[0], q[1], q[2], q[3]])
+                pose_data.append(current_pose)
+
+                ik_sol = self.ik_planner.compute_ik(
+                    self.joint_state, 
+                    tx, ty, tz, 
+                    qx=q[0], qy=q[1], qz=q[2], qw=q[3]
+                )
+
+                if ik_sol:
+                    self.job_queue.append(ik_sol)
+                else:
+                    self.get_logger().warn(f"IK failed for theta {theta}")
+            height = 0.2
+            tilt_distance += 0.05
+
+        ik_sol = self.ik_planner.compute_ik(self.joint_state, cx, cy-0.15, cz+0.35)
+        if ik_sol:
+            self.job_queue.append(ik_sol)
+
+        final_poses = np.array(pose_data)
+        np.save('poses.npy', final_poses)
+
+        #--------------------------------------------
+        self.get_logger().info("\nPress ENTER to begin pick and place. (Ctrl+C to cancel)")
+        while rclpy.ok():
+            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                line = sys.stdin.readline()
+                break
+            rclpy.spin_once(self, timeout_sec=0.1)
+        #--------------------------------------------
 
         offsets = PICK_OFFSETS.get(self.detected_class, DEFAULT_OFFSETS)
         self.get_logger().info(
