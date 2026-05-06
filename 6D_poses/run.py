@@ -9,13 +9,16 @@ Configure objects and camera parameters below, then either:
 Returns a list of result dicts — one per detected object instance.
 """
 
+import os
 import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 from pose_estimator import PoseEstimator
-from object_config import ObjectConfig
 from visualisation import save_all_figures, print_results_table
-
+from constants import (
+    OBJECTS, CAMERA_FX, CAMERA_FY, SCENE_IDX, OUTPUT_DIR,
+    DB_DIR, N_VIEWS, SEG_NAME_MAP, T_CAM_FROM_EE, NUM_POSES_PER_LAYER
+)
 
 def _pose7_to_ee_T_world(p) -> np.ndarray:
     """[x, y, z, qx, qy, qz, qw] → 4×4 ee_T_world."""
@@ -42,161 +45,6 @@ def _load_poses(npy_path: str):
     traj = [_pose7_to_ee_T_world(raw[i]) for i in range(7, len(raw))]
     return home, traj[:20], traj[20:]
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CONFIGURE YOUR OBJECTS
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# For each object you need:
-#   name         short identifier (no spaces)
-#   stl_path     path to the .stl file
-#   color_rgb    the colour the object is printed in, as (R, G, B)
-#   hsv_low/high HSV thresholds for auto-masking
-#
-# TIP: Run `python hsv_picker.py scene.jpg` to get HSV values by clicking
-#      on your objects — it prints ready-to-paste config lines.
-#
-# Red is special: it wraps around hue=0 in HSV, so it needs two ranges.
-# Use hsv_low2/hsv_high2 for the second range (see red objects below).
-# ═══════════════════════════════════════════════════════════════════════════
-
-OBJECTS = [
-
-    ObjectConfig(
-        name        = "apple",
-        stl_path    = "models/Apple_STL.stl",
-        color_rgb   = (200, 40, 40),
-        hsv_low     = (0,   186, 105),
-        hsv_high    = (10,  255, 198),
-        hsv_low2    = (165, 186, 105),
-        hsv_high2   = (179, 255, 198),
-        diameter_m  = 0.045,
-    ),
-
-    ObjectConfig(
-        name        = "blueberry",
-        stl_path    = "models/Blueberry_STL.stl",
-        color_rgb   = (60, 40, 100),
-        hsv_low     = (120, 50, 20),
-        hsv_high    = (150, 200, 120),
-        diameter_m  = 0.015,
-    ),
-
-    ObjectConfig(
-        name        = "cherry",
-        stl_path    = "models/Cherry_STL.stl",
-        color_rgb   = (180, 30, 30),
-        hsv_low     = (0,   120, 60),
-        hsv_high    = (10,  255, 200),
-        hsv_low2    = (165, 120, 60),
-        hsv_high2   = (179, 255, 200),
-        diameter_m  = 0.02,
-    ),
-
-    ObjectConfig(
-        name        = "cake",
-        stl_path    = "models/Lava_Cake_STL.stl",
-        color_rgb   = (80, 40, 15),
-        hsv_low     = (82, 10, 0),
-        hsv_high    = (118, 137, 62),
-        diameter_m  = 0.075,
-        is_symmetric = False,
-    ),
-
-    ObjectConfig(
-        name        = "grape",
-        stl_path    = "models/Grape_STL.stl",
-        color_rgb   = (100, 50, 120),
-        hsv_low     = (114, 45, 1),
-        hsv_high    = (146, 207, 158),
-        diameter_m  = 0.0236,
-    ),
-
-    ObjectConfig(
-        name        = "half_grape",
-        stl_path    = "models/Half_Grape_STL.stl",
-        color_rgb   = (100, 50, 120),
-        hsv_low     = (114, 45, 1),
-        hsv_high    = (146, 207, 158),
-        diameter_m  = 0.0236,
-        is_symmetric = False,
-    ),
-
-    ObjectConfig(
-        name        = "halved_strawberry",
-        stl_path    = "models/Halved_Strawberry_STL.stl",
-        color_rgb   = (210, 50, 60),
-        hsv_low     = (0,   186, 105),
-        hsv_high    = (10,  255, 198),
-        hsv_low2    = (165, 186, 105),
-        hsv_high2   = (179, 255, 198),
-        diameter_m  = 0.0301,
-        is_symmetric = False,
-    ),
-
-    ObjectConfig(
-        name        = "mango_piece",
-        stl_path    = "models/Mango_Piece_STL.stl",
-        color_rgb   = (220, 150, 50),
-        hsv_low     = (15,  100, 100),
-        hsv_high    = (35,  255, 255),
-        diameter_m  = 0.04,
-        is_symmetric = False,
-    ),
-
-    ObjectConfig(
-        name        = "small_tomato",
-        stl_path    = "models/Small_Tomato_STL.stl",
-        color_rgb   = (210, 50, 40),
-        hsv_low     = (0,   120, 80),
-        hsv_high    = (10,  255, 255),
-        hsv_low2    = (165, 120, 80),
-        hsv_high2   = (179, 255, 255),
-        diameter_m  = 0.03,
-    ),
-
-    ObjectConfig(
-        name        = "strawberry",
-        stl_path    = "models/Strawberry_STL.stl",
-        color_rgb   = (210, 50, 60),
-        hsv_low     = (0,   120, 80),
-        hsv_high    = (10,  255, 255),
-        hsv_low2    = (165, 120, 80),
-        hsv_high2   = (179, 255, 255),
-        diameter_m  = 0.0301,
-        is_symmetric = False,
-    ),
-
-]
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CAMERA INTRINSICS
-# ═══════════════════════════════════════════════════════════════════════════
-# Get these from cv2.calibrateCamera(), or use this rough estimate:
-#   fx = fy ≈ image_width * 1.2   (for a typical phone/webcam)
-
-CAMERA_FX = 700.0
-CAMERA_FY = 700.0
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PATHS / SETTINGS
-# ═══════════════════════════════════════════════════════════════════════════
-
-SCENE_IDX    = 2                # which captured image to process (single-view)
-OUTPUT_DIR   = "./results"       # figures saved here
-DB_DIR       = "./pose_db"       # reference databases cached here
-N_VIEWS      = 500               # render views per object (increase for accuracy)
-
-# Maps the label names used in mask filenames to ObjectConfig names above.
-# Keys are whatever the segmentation model wrote into the filename;
-# values must match the `name` field in OBJECTS. Omit labels you want skipped.
-SEG_NAME_MAP = {
-    "blueberry":  "blueberry",
-    "cake":       "cake",
-    "grape":      "grape",
-    "strawberry": "strawberry",
-}
-
 # ═══════════════════════════════════════════════════════════════════════════
 # CAMERA MOUNT GEOMETRY
 # ═══════════════════════════════════════════════════════════════════════════
@@ -206,17 +54,24 @@ SEG_NAME_MAP = {
 # your robot's convention, and add a rotation block if the camera is
 # tilted relative to the end-effector.
 
-T_CAM_FROM_EE = np.array([
-    [1, 0, 0,  0.030],   #  3.0 cm forward
-    [0, 1, 0,  0.000],
-    [0, 0, 1, -0.135],   # 13.5 cm above
-    [0, 0, 0,  1.000],
-])
-
-
 def cam_T_world_from_ee(ee_T_world: np.ndarray) -> np.ndarray:
     """Convert a world-to-end-effector pose to a world-to-camera pose."""
     return np.linalg.inv(T_CAM_FROM_EE) @ ee_T_world
+
+
+def _add_base_link_poses(results: list[dict], cam_T_world: np.ndarray) -> None:
+    """Add 'position_base_link_m' and 'pose_base_link' to each result in-place."""
+    world_T_cam = np.linalg.inv(cam_T_world)
+    for r in results:
+        if "error" in r:
+            continue
+        if "position_m" in r:
+            r["position_base_link_m"] = (world_T_cam @ np.append(r["position_m"], 1.0))[:3]
+        if r.get("rotation_matrix") is not None and r.get("translation_m") is not None:
+            T = np.eye(4)
+            T[:3, :3] = r["rotation_matrix"]
+            T[:3,  3] = r["translation_m"]
+            r["pose_base_link"] = world_T_cam @ T
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -236,6 +91,8 @@ def run_pose_estimation(
     scene_idx: int = SCENE_IDX,
     force_rebuild: bool = False,
     save_figures: bool = True,
+    images_dir: str = "data/captured_images",
+    masks_dir: str = "data/segmented",
 ) -> list[dict]:
     """
     Run 6D pose estimation and return results.
@@ -253,6 +110,8 @@ def run_pose_estimation(
     scene_idx     : which captured_image_N to use (only when use_multi_view=False)
     force_rebuild : rebuild reference databases even if cached files exist
     save_figures  : write scene_poses/comparisons/masks_debug PNGs to output_dir
+    images_dir    : directory containing captured_image_N.jpg files
+    masks_dir     : directory containing per-image segmentation subfolders
 
     Returns
     -------
@@ -273,21 +132,20 @@ def run_pose_estimation(
     estimator.build_databases(force_rebuild=force_rebuild)
 
     if use_multi_view:
-        # 9-view subset:
         #   image 1        → vertical/home pose
-        #   images 2–21    → high arc (20 shots); pick 4 evenly spaced
-        #   images 22–41   → low  arc (20 shots); pick 4 evenly spaced
+        #   images 2–21    → high arc (20 shots);
+        #   images 22–41   → low  arc (20 shots);
         home, high_arc, low_arc = _load_poses(poses_path)
-        arc_idx = np.linspace(0, 19, 4, dtype=int)   # [0, 6, 13, 19]
+        arc_idx = np.linspace(0, 19, NUM_POSES_PER_LAYER, dtype=int)
         scenes = (
-            [("data/captured_images/captured_image_1.jpg",
-              "data/segmented/captured_image_1",
+            [(f"{images_dir}/captured_image_1.jpg",
+              f"{masks_dir}/captured_image_1",
               home)]
-            + [(f"data/captured_images/captured_image_{i + 2}.jpg",
-                f"data/segmented/captured_image_{i + 2}",
+            + [(f"{images_dir}/captured_image_{i + 2}.jpg",
+                f"{masks_dir}/captured_image_{i + 2}",
                 high_arc[i]) for i in arc_idx]
-            + [(f"data/captured_images/captured_image_{i + 22}.jpg",
-                f"data/segmented/captured_image_{i + 22}",
+            + [(f"{images_dir}/captured_image_{i + 22}.jpg",
+                f"{masks_dir}/captured_image_{i + 22}",
                 low_arc[i]) for i in arc_idx]
         )
 
@@ -310,10 +168,11 @@ def run_pose_estimation(
             seg_name_map = seg_name_map,
         )
         image = raw_images[0]
+        _add_base_link_poses(results, cam_poses[0])
 
     else:
-        scene_image = f"data/captured_images/captured_image_{scene_idx}.jpg"
-        mask_dir    = f"data/segmented/captured_image_{scene_idx}"
+        scene_image = f"{images_dir}/captured_image_{scene_idx}.jpg"
+        mask_dir    = f"{masks_dir}/captured_image_{scene_idx}"
         bgr = cv2.imread(scene_image)
         if bgr is None:
             raise FileNotFoundError(f"Could not load: {scene_image}")
@@ -328,6 +187,14 @@ def run_pose_estimation(
             mask_dir     = mask_dir,
             seg_name_map = seg_name_map,
         )
+
+        if os.path.isfile(poses_path):
+            raw_poses = np.load(poses_path, allow_pickle=True)
+            if scene_idx == 1:
+                ee = _pose7_to_ee_T_world([float(raw_poses[k]) for k in range(7)])
+            else:
+                ee = _pose7_to_ee_T_world(raw_poses[scene_idx + 5])
+            _add_base_link_poses(results, cam_T_world_from_ee(ee))
 
     print_results_table(results)
 
@@ -344,6 +211,21 @@ def run_pose_estimation(
         print("  scene_poses.png   — axes drawn at each estimated pose")
         print("  comparisons.png   — real crop vs render per object")
         print("  masks_debug.png   — auto-generated colour masks")
+
+    os.makedirs(output_dir, exist_ok=True)
+    poses_out = [
+        {
+            "object_name":         r["object_name"],
+            "instance_idx":        r.get("instance_idx"),
+            "position_base_link_m": r.get("position_base_link_m"),
+            "pose_base_link":      r.get("pose_base_link"),
+            "confidence":          r.get("confidence"),
+        }
+        for r in results if "error" not in r
+    ]
+    out_path = os.path.join(output_dir, "object_poses.npy")
+    np.save(out_path, poses_out, allow_pickle=True)
+    print(f"Object poses saved → {out_path}")
 
     return results
 

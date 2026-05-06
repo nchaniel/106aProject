@@ -41,7 +41,7 @@ def get_device() -> torch.device:
 def _look_at(eye: np.ndarray,
              center: np.ndarray = None,
              up: np.ndarray = None) -> np.ndarray:
-    """4×4 camera-to-world matrix (OpenGL convention)."""
+    """4x4 camera-to-world matrix (OpenGL convention)."""
     if center is None: center = np.zeros(3)
     if up is None:     up = np.array([0.0, 1.0, 0.0])
     f = center - eye
