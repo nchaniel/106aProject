@@ -138,7 +138,7 @@ class DetectionNode(Node):
 
         for det in detections:
             class_name = det["class_name"]
-            if self.target_class and det["class_name"] != self.target_class:
+            if self.target_class and class_name != self.target_class and class_name != "plate":
                 continue
 
             if self.cloud is None or self.camera_info is None:
