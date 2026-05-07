@@ -16,6 +16,17 @@ from perception.pixel_to_world import (
     transform_point,
 )
 
+#--------------------------------------
+# SAM2 portion
+import torch
+import numpy as np
+from ultralytics import YOLO
+from sam2.build_sam import build_sam2
+from sam2.sam2_image_predictor import SAM2ImagePredictor
+from segment_live import boxes_stable, run_sam2_masks, SAM2_CONFIGS, COLORS
+from segment_v2 import _blend_mask
+
+
 
 class DetectionNode(Node):
     def __init__(self):
@@ -60,6 +71,15 @@ class DetectionNode(Node):
 
         self.plate_position = None
         self.plate_radius = 0.14  # tune this (meters)
+
+        #--------------------------------------
+        # SAM2 setup
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        config_file, ckpt_path = SAM2_CONFIGS["tiny"]
+        sam2_model = build_sam2(config_file, ckpt_path, device=device)
+        self._predictor = SAM2ImagePredictor(sam2_model)
+        self._prev_boxes = []
+        self._prev_masks = []
 
         # ----------------------------
         # Subscribers
@@ -193,13 +213,58 @@ class DetectionNode(Node):
                 f"({pt.point.x:.3f}, {pt.point.y:.3f}, {pt.point.z:.3f})"
             )
 
-        if self.show_image:
+        #--------------------------------------
+        '''if self.show_image:
             vis_image = self.detector.draw_detections(cv_image, detections)
             h, w = vis_image.shape[:2]
             scale = min(1000 / w, 700 / h)
             display_image = cv2.resize(vis_image, (int(w * scale), int(h * scale)))
             cv2.namedWindow("YOLO Detections", cv2.WINDOW_NORMAL)
             cv2.imshow("YOLO Detections", display_image)
+            cv2.waitKey(1)'''
+        if self.show_image:
+            # --- Window 1: YOLO boxes (unchanged) ---
+            vis_image = self.detector.draw_detections(cv_image, detections)
+            h, w = vis_image.shape[:2]
+            scale = min(1000 / w, 700 / h)
+            display_image = cv2.resize(vis_image, (int(w * scale), int(h * scale)))
+            cv2.namedWindow("YOLO Detections", cv2.WINDOW_NORMAL)
+            cv2.imshow("YOLO Detections", display_image)
+
+            # --- Window 2: SAM2 masks ---
+            frame_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+
+            # Convert detections to the format segment_live expects
+            sam_dets = [
+                {
+                    "idx": i,
+                    "label": d["class_name"],
+                    "conf": d["confidence"],
+                    "box": np.array([
+                        d["bbox"][0], d["bbox"][1],
+                        d["bbox"][2], d["bbox"][3]
+                    ], dtype=int),
+                }
+                for i, d in enumerate(detections)
+            ]
+
+            # Only rerun SAM2 if boxes changed significantly
+            cached = boxes_stable(self._prev_boxes, sam_dets, threshold=0.85)
+            if not cached and sam_dets:
+                self._prev_masks = run_sam2_masks(self._predictor, frame_rgb, sam_dets)
+                self._prev_boxes = sam_dets
+
+            # Composite mask overlay
+            composite = frame_rgb.copy()
+            for det, mask in zip(sam_dets, self._prev_masks):
+                color = COLORS[det["idx"] % len(COLORS)]
+                composite = _blend_mask(composite, mask, color, alpha=0.45)
+
+            mask_display = cv2.cvtColor(composite, cv2.COLOR_RGB2BGR)
+            mask_display = cv2.resize(mask_display, (int(w * scale), int(h * scale)))
+            cv2.namedWindow("SAM2 Masks", cv2.WINDOW_NORMAL)
+            cv2.imshow("SAM2 Masks", mask_display)
+
             cv2.waitKey(1)
 
 
