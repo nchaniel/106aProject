@@ -161,7 +161,8 @@ class UR7e_CubeGrasp(Node):
     def _on_start_pick_place(self, msg: Bool):
         if msg.data and not self.pick_place_enabled:
             self.pick_place_enabled = True
-            self.get_logger().info("Pick-and-place mode activated.")
+            self.get_logger().info("Pick-and-place mode activated — moving to observation pose.")
+            self._go_home()
 
     def class_callback(self, msg: String):
         self.detected_class = msg.data
