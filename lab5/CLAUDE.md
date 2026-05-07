@@ -1,14 +1,16 @@
 # Lab 5 — Vision-Guided Pick and Place (UR7e)
 
 ## Current Objective
-Pick up a **user-specified object class** (e.g. "apple") from the table using YOLO detection and place it onto a **detected plate**. The plate is detected in the same YOLO pipeline and its 3D centroid is published separately. The arm must:
-1. Wait at a fixed home/observation pose until both an object centroid and a plate centroid have been published.
-2. Move to a **pre-pregrasp position** directly above the initial centroid (`cz + 0.5 m`) so the camera gets an undistorted centered view.
-3. Recalculate the object centroid from this better vantage point.
-4. Execute a 7-step grasp sequence using the refined centroid (hover → descend → grip → lift → move over plate → lower → release).
-5. Return to home automatically and wait for the next detection.
+Pick up a **user-specified object class** (e.g. "apple") from the table using YOLO detection and place it onto a **detected plate**. The plate is detected in the same YOLO pipeline and its 3D centroid is published separately. The full run sequence is:
+1. **Arm circler phase** (optional): orbit the arm around the plate centroid for a 2-pass inspection (40 waypoints, photos saved). Skip with `skip_circler:=true`.
+2. **Mode switch**: user presses Enter in the commander terminal to activate pick-and-place.
+3. Move to a **pre-pregrasp position** directly above the initial centroid (`cz + 0.5 m`) so the camera gets an undistorted centered view.
+4. Recalculate the object centroid from this better vantage point.
+5. Execute a 7-step grasp sequence using the refined centroid (hover → descend → grip → lift → move over plate → lower → release).
+6. Return to home automatically and wait for the next pick command.
+7. **Between picks**: type the next class name in the commander terminal to update the target.
 
-The `target_class` launch argument (default: empty = highest-confidence detection) selects which class to pick. The plate is excluded from pick candidates by a radius filter in `detection_node.py`.
+The `target_class` launch argument (default: empty = highest-confidence detection) selects which class to pick initially. The plate is excluded from pick candidates by a radius filter in `detection_node.py`.
 
 ---
 
@@ -24,6 +26,15 @@ RealSense Camera (started separately)
                   /detected_pick_point ───────┤
                   /detected_plate_point ──────┤
                                               ▼
+                  /set_target_class ─────► DetectionNode (runtime class switch)
+
+Commander (commander.py) ──/start_pick_place──► UR7e_CubeGrasp (main.py)
+    (separate terminal)   ──/set_target_class──► DetectionNode
+
+ArmCircler (arm_circler.py)
+    ├─ /detected_plate_point  (orbit center)
+    └─ /joint_states
+
                                        UR7e_CubeGrasp (main.py)
                                               │
                                          IKPlanner (ik.py)
@@ -44,7 +55,7 @@ RealSense Camera (started separately)
 
 | File | Class/Role | Key detail |
 |---|---|---|
-| `detection_node.py` | `DetectionNode` | Main perception node. Runs YOLO on each RGB frame, extracts 3D centroid from depth cloud, transforms to `base_link`, publishes pick point + class. Has a plate-radius exclusion filter (0.14 m). |
+| `detection_node.py` | `DetectionNode` | Main perception node. Runs YOLO on each RGB frame, extracts 3D centroid from depth cloud, transforms to `base_link`, publishes pick point + class. Has a plate-radius exclusion filter (0.14 m). Subscribes to `/set_target_class` to switch target at runtime. |
 | `yolo_detector.py` | `YOLODetector` | Stateless Ultralytics YOLO wrapper. `detect(image)` returns list of `{class_id, class_name, confidence, bbox, center}`. |
 | `pixel_to_world.py` | (functions) | `get_centroid_from_cloud_bbox()` — reprojects pointcloud into image coords, averages points inside bbox. `transform_point()` — TF lookup to convert camera frame → `base_link`. |
 
@@ -54,7 +65,9 @@ RealSense Camera (started separately)
 
 | File | Class/Role | Key detail |
 |---|---|---|
-| `main.py` | `UR7e_CubeGrasp` | Top-level state machine. Owns `busy` flag, `job_queue`, and all pick/place logic. |
+| `main.py` | `UR7e_CubeGrasp` | Top-level state machine. Owns `busy` flag, `job_queue`, and all pick/place logic. Starts locked (`pick_place_enabled=False`) until `/start_pick_place` is received (or `skip_circler:=true`). |
+| `arm_circler.py` | `ArmCircler` | Pre-inspection node. Orbits arm around plate centroid (2 rows × 20 waypoints, look-at orientation). Takes a photo at each waypoint, saves `poses.npy`. Sets `_orbit_done=True` when complete. Launched by bringup unless `skip_circler:=true`. |
+| `commander.py` | `Commander` | Interactive controller run in a **separate terminal**. Blocking `input()` in main thread, ROS spin in background thread. First Enter → publishes `/start_pick_place`. Subsequent inputs → publishes `/set_target_class`. |
 | `ik.py` | `IKPlanner` | Wraps `/compute_ik` (MoveIt IK) and `/plan_kinematic_path` (RRTConnect). Default orientation `qy=1` = gripper pointing straight down. |
 | `static_tf_transform.py` | `ConstantTransformPublisher` | Broadcasts `wrist_3_link → camera_link` via a hard-coded 4×4 matrix `G`. |
 
@@ -101,6 +114,12 @@ When the job queue empties, `execute_jobs()` checks `_going_home`:
 ### 9. Plate always published regardless of `target_class`
 In `detection_node.py`, the `target_class` filter explicitly exempts `"plate"` so the plate centroid is always published on `/detected_plate_point` even when a specific object class is targeted.
 
+### 10. `pick_place_enabled` gate
+`UR7e_CubeGrasp.cube_callback` returns immediately if `self.pick_place_enabled` is False. Set to True either by receiving `/start_pick_place Bool(True)` (from commander) or at startup when `skip_circler:=true` is passed as a launch argument.
+
+### 11. Arm circler orbit
+`ArmCircler` generates 2 rows × 20 waypoints around the plate centroid using look-at quaternions (`rot_z * rot_y * rot_x`). Row 1 at `height=0.3 m`, row 2 reversed at `height=0.2 m`. Orbit is triggered once on the first `/detected_plate_point`; subsequent messages are ignored (`_orbit_triggered` guard).
+
 ---
 
 ## ROS Topics & Services
@@ -109,7 +128,9 @@ In `detection_node.py`, the `target_class` filter explicitly exempts `"plate"` s
 |---|---|---|---|
 | `/detected_pick_point` | `PointStamped` | perception → planning | 3D centroid of target object in `base_link` |
 | `/detected_class` | `String` | perception → planning | YOLO class label of the target object |
-| `/detected_plate_point` | `PointStamped` | perception → planning | 3D centroid of the plate in `base_link` |
+| `/detected_plate_point` | `PointStamped` | perception → planning/circler | 3D centroid of the plate in `base_link` |
+| `/set_target_class` | `String` | commander → perception | Switches YOLO target class at runtime |
+| `/start_pick_place` | `Bool` | commander → planning | Activates pick-and-place mode after orbit |
 | `/joint_states` | `JointState` | robot → planning | Current arm configuration; seeds IK |
 | `/scaled_joint_trajectory_controller/follow_joint_trajectory` | Action | planning → robot | Executes planned joint trajectory |
 | `/toggle_gripper` | `Trigger` service | planning → gripper | Opens/closes gripper (toggle) |
@@ -127,6 +148,8 @@ PICK_OFFSETS = {
     "cake":       { "x_offset": 0.02,  "y_offset": 0.005, "pre_grasp_z_offset": 0.20, "grasp_z_offset": 0.15,  "lift_z_offset": 0.20  },
     "strawberry": { "x_offset": 0.02,  "y_offset": 0.005, "pre_grasp_z_offset": 0.20, "grasp_z_offset": 0.14,  "lift_z_offset": 0.20  },
     "cherry":     { "x_offset": 0.02,  "y_offset": 0.005, "pre_grasp_z_offset": 0.20, "grasp_z_offset": 0.14,  "lift_z_offset": 0.20  },
+    "grape":      { "x_offset": 0.02,  "y_offset": 0.005, "pre_grasp_z_offset": 0.20, "grasp_z_offset": 0.14,  "lift_z_offset": 0.20  },
+    "blueberry":  { "x_offset": 0.02,  "y_offset": 0.005, "pre_grasp_z_offset": 0.20, "grasp_z_offset": 0.14,  "lift_z_offset": 0.20  },
 }
 DEFAULT_OFFSETS = { "x_offset": 0.02, "y_offset": 0.005, "pre_grasp_z_offset": 0.16, "grasp_z_offset": 0.14, "lift_z_offset": 0.185 }
 ```
@@ -160,13 +183,39 @@ ros2 launch realsense2_camera rs_launch.py \
     pointcloud.enable:=true \
     rgb_camera.color_profile:=1280x720x30
 
-# Terminal 2: Everything else
+# Terminal 2: Bringup (with arm circler)
 ros2 launch planning lab5_bringup.launch.py \
     robot_ip:=192.168.1.102 \
-    target_class:=apple       # omit for highest-confidence detection
+    target_class:=apple
+
+# Terminal 2 (alt): Skip arm circler, go straight to pick-and-place
+ros2 launch planning lab5_bringup.launch.py \
+    robot_ip:=192.168.1.102 \
+    target_class:=apple \
+    skip_circler:=true
+
+# Terminal 3: Commander (required for mode switch and class changes)
+ros2 run planning commander
 ```
 
+**Commander workflow:**
+1. Wait for orbit to finish, then press Enter → pick-and-place activates
+2. Type a class name (e.g. `cake`) + Enter → detection node switches target immediately
+3. Repeat after each pick cycle
+
 YOLO model weights: `best.pt` (fine-tuned), `updated.pt`, `yolov8n.pt` — all at the repo root. `model_path` parameter selects which one.
+
+---
+
+## Launch Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `robot_ip` | `192.168.1.102` | UR7e IP address |
+| `target_class` | `""` | Initial YOLO target class (empty = highest confidence) |
+| `skip_circler` | `false` | Skip arm circler and enable pick-and-place immediately |
+| `launch_rviz` | `true` | Launch RViz with MoveIt |
+| `shutdown_on_exit` | `true` | Kill all nodes if any process exits |
 
 ---
 
@@ -175,3 +224,5 @@ YOLO model weights: `best.pt` (fine-tuned), `updated.pt`, `yolov8n.pt` — all a
 - `drop_pre_joints` and `drop_joints` IK failures are **not checked** before enqueueing (`None` would be passed to `plan_to_joints`). If IK fails for a drop waypoint, the arm will error mid-sequence.
 - Gripper state (`self.gripper_open`) is assumed to start open; gets out of sync if the gripper is physically closed at startup.
 - If the object moves or is removed after the arm reaches pre-pregrasp, the refined detection will use its new/absent position. The arm will wait indefinitely if no detection arrives after pre-pregrasp.
+- Commander must be run in a separate terminal — stdin is not forwarded to nodes launched via `ros2 launch`.
+- When `skip_circler:=true`, the commander is still useful for switching target class between pick cycles, but the initial Enter press is not needed.

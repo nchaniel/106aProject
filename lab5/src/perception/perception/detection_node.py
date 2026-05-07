@@ -73,6 +73,7 @@ class DetectionNode(Node):
         self.camera_info_subscription = self.create_subscription(
             CameraInfo, camera_info_topic, self.camera_info_callback, 10
         )
+        self.create_subscription(String, '/set_target_class', self._set_target_class_cb, 1)
 
         # ----------------------------
         # Publisher
@@ -96,6 +97,10 @@ class DetectionNode(Node):
         self._frames_received = 0
         self._cloud_received = 0
         self._watchdog = self.create_timer(5.0, self._watchdog_cb)
+
+    def _set_target_class_cb(self, msg: String):
+        self.target_class = msg.data
+        self.get_logger().info(f"Target class updated to: '{self.target_class}'")
 
     def _watchdog_cb(self):
         msgs = []

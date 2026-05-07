@@ -4,7 +4,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -19,6 +19,7 @@ def generate_launch_description():
     robot_ip = LaunchConfiguration("robot_ip", default="192.168.1.102")
     shutdown_on_exit = LaunchConfiguration("shutdown_on_exit", default="true")
     target_class = LaunchConfiguration("target_class", default="")
+    skip_circler = LaunchConfiguration("skip_circler", default="false")
 
     # -------------------------
     # Includes & Nodes
@@ -80,12 +81,13 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Arm circler node (runs first; publishes /start_pick_place on Enter)
+    # Arm circler node (skipped when skip_circler:=true)
     arm_circler_node = Node(
         package='planning',
         executable='circler',
         name='arm_circler',
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(skip_circler)
     )
 
     # Main pick/place node
@@ -93,7 +95,8 @@ def generate_launch_description():
         package='planning',
         executable='main',
         name='cube_grasp',
-        output='screen'
+        output='screen',
+        parameters=[{'skip_circler': skip_circler}]
     )
 
     # -------------------------

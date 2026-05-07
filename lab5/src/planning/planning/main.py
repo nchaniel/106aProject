@@ -48,8 +48,8 @@ PICK_OFFSETS = {
         "lift_z_offset":      0.185,
     },
     "cake": {
-        "x_offset":           0.02,
-        "y_offset":           0.005,
+        "x_offset":           0.015,
+        "y_offset":           0.00,
         "pre_grasp_z_offset": 0.20,
         "grasp_z_offset":     0.14,
         "lift_z_offset":      0.20,
@@ -108,8 +108,11 @@ class UR7e_CubeGrasp(Node):
 
         self.gripper_cli = self.create_client(Trigger, '/toggle_gripper')
 
-        self.pick_place_enabled = False
+        self.declare_parameter('skip_circler', False)
+        self.pick_place_enabled = self.get_parameter('skip_circler').value
         self._start_sub = self.create_subscription(Bool, '/start_pick_place', self._on_start_pick_place, 1)
+        if self.pick_place_enabled:
+            self.get_logger().info("skip_circler=true: pick-and-place active immediately.")
 
         self.busy = False
         self.cube_pose = None
@@ -127,7 +130,7 @@ class UR7e_CubeGrasp(Node):
         #   ros2 topic echo /joint_states --once
         # and fill in the 6 joint angles below in the order:
         #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
-        self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
+        self._home_joints = [4.750492095947266, -1.4821723264506836, -2.0345261096954346, -1.2388786238482972, 1.5857458114624023, -3.075918738042013]
         self._going_home = False
         self._refining = False        # True from pre-pregrasp dispatch until refined centroid is used
         self._at_pre_pregrasp = False # True only after the arm has physically arrived at pre-pregrasp
