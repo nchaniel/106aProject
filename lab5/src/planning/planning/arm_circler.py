@@ -4,6 +4,7 @@ from scipy.spatial.transform import Rotation as R
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PointStamped
 from sensor_msgs.msg import JointState, Image
@@ -29,7 +30,8 @@ class ArmCircler(Node):
         )
 
         self._start_pub   = self.create_publisher(Bool, '/start_pick_place', 1)
-        self._orbit_done_pub = self.create_publisher(Bool, '/orbit_done', 1)
+        _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._orbit_done_pub = self.create_publisher(Bool, '/orbit_done', _latched)
 
         self._exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -54,7 +56,7 @@ class ArmCircler(Node):
 
     def _take_photo(self):
         if self._frame is not None:
-            cv2.imwrite(f'captured_images_2/captured_image_{self._image_count + 1}.jpg', self._frame)
+            cv2.imwrite(f'captured_images/captured_image_{self._image_count + 1}.jpg', self._frame)
             self.get_logger().info(f'Saved circler image {self._image_count + 1}')
             self._image_count += 1
 

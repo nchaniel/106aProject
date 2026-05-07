@@ -10,6 +10,7 @@ from std_msgs.msg import String, Bool
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PointStamped
 from trajectory_msgs.msg import JointTrajectory
@@ -119,8 +120,13 @@ class UR7e_CubeGrasp(Node):
         self.declare_parameter('skip_circler', False)
         self.pick_place_enabled = self.get_parameter('skip_circler').value
         self._start_sub = self.create_subscription(Bool, '/start_pick_place', self._on_start_pick_place, 1)
+        _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._orbit_done_pub = self.create_publisher(Bool, '/orbit_done', _latched)
         if self.pick_place_enabled:
             self.get_logger().info("skip_circler=true: pick-and-place active immediately.")
+            _msg = Bool()
+            _msg.data = True
+            self._orbit_done_pub.publish(_msg)
 
         self.busy = False
         self.cube_pose = None

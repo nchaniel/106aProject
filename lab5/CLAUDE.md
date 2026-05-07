@@ -1,16 +1,26 @@
 # Lab 5 — Vision-Guided Pick and Place (UR7e)
 
 ## Current Objective
-Pick up a **user-specified object class** (e.g. "apple") from the table using YOLO detection and place it onto a **detected plate**. The plate is detected in the same YOLO pipeline and its 3D centroid is published separately. The full run sequence is:
-1. **Arm circler phase** (optional): orbit the arm around the plate centroid for a 2-pass inspection (40 waypoints, photos saved). Skip with `skip_circler:=true`.
-2. **Mode switch**: user presses Enter in the commander terminal to activate pick-and-place.
-3. Move to a **pre-pregrasp position** directly above the initial centroid (`cz + 0.5 m`) so the camera gets an undistorted centered view.
-4. Recalculate the object centroid from this better vantage point.
-5. Execute a 7-step grasp sequence using the refined centroid (hover → descend → grip → lift → move over plate → lower → release).
-6. Return to home automatically and wait for the next pick command.
-7. **Between picks**: type the next class name in the commander terminal to update the target.
 
-The `target_class` launch argument (default: empty = highest-confidence detection) selects which class to pick initially. The plate is excluded from pick candidates by a radius filter in `detection_node.py`.
+**Active goal: wire the 6D pose pipeline's pre-computed positions into the pick-and-place executor and compute per-object drop destinations on the plate.**
+
+The full end-to-end sequence is now:
+1. **Arm circler phase**: orbit arm 2 rows × 20 waypoints around the plate, saving photos → `captured_images_2/` and EE poses → `poses.npy`.
+2. **Offline processing** (triggered automatically by commander when `/orbit_done` fires):
+   - Run YOLO + SAM2 segmentation on all captured images → `segmented/` masks.
+   - Run 6D pose estimation (multi-view triangulation) → `results/object_poses.npy` with a `position_base_link_m` per object.
+3. Commander displays the detected objects + positions and presents a planned pick order.
+4. User presses Enter → pick-and-place activates. The arm executes the planned sequence **using the pre-computed 6D positions** (not live detection) for source positions, and **computed drop destinations** on the plate for placement.
+5. Each pick/place uses the same 7-step grasp sequence (hover → descend → grip → lift → move over plate → lower → release), but the source `(cx, cy, cz)` comes from `position_base_link_m` and the drop `(dx, dy, dz)` comes from a pre-computed layout on the plate.
+
+### What is NOT yet implemented
+- **Planning algorithm**: compute pick order from 6D pose results (e.g. nearest-first, or by object type priority).
+- **Per-object drop positions**: calculate distinct placement spots on the plate for each object (e.g. arranged in a grid/arc around the plate centroid) so objects don't stack on each other.
+- **Integration**: commander currently just lets the user type class names; it does not feed `position_base_link_m` from `object_poses.npy` to `main.py` as the pick source. `main.py` still relies on live `/detected_pick_point`. A new mechanism (topic, service, or parameter file) is needed to pass pre-computed positions to the executor.
+
+The plate centroid (from live `/detected_plate_point`) sets the centre of the drop zone; per-object offsets are computed around it.
+
+The `target_class` launch argument (default: empty = highest-confidence detection) selects which class to pick initially when running in manual/live mode. The plate is excluded from pick candidates by a radius filter in `detection_node.py`.
 
 ---
 
@@ -28,15 +38,24 @@ RealSense Camera (started separately)
                                               ▼
                   /set_target_class ─────► DetectionNode (runtime class switch)
 
-Commander (commander.py) ──/start_pick_place──► UR7e_CubeGrasp (main.py)
-    (separate terminal)   ──/set_target_class──► DetectionNode
-
 ArmCircler (arm_circler.py)
     ├─ /detected_plate_point  (orbit center)
-    └─ /joint_states
+    ├─ /joint_states
+    ├─ saves captured_images_2/ + poses.npy during orbit
+    └─ /orbit_done ──────────────────────────────────────► Commander
+
+Commander (commander.py) — runs in separate terminal
+    ├─ on /orbit_done: subprocess → segment_batch.py (YOLO+SAM2 → segmented/)
+    ├─ on /orbit_done: subprocess → 6D_poses/run.py  (triangulation → results/object_poses.npy)
+    ├─ displays detected objects + positions
+    ├─ [TODO] compute pick order + per-object drop positions from object_poses.npy
+    ├─ [TODO] publish pre-computed task list to main.py
+    ├─ /start_pick_place ────────────────────────────────► UR7e_CubeGrasp (main.py)
+    └─ /set_target_class ────────────────────────────────► DetectionNode
 
                                        UR7e_CubeGrasp (main.py)
-                                              │
+                                              │  (currently: uses live /detected_pick_point)
+                                              │  (TODO: consume pre-computed positions)
                                          IKPlanner (ik.py)
                                               ├─ /compute_ik   ──► MoveIt 2
                                               └─ /plan_kinematic_path ──► MoveIt 2
@@ -46,6 +65,73 @@ ArmCircler (arm_circler.py)
 ```
 
 **Static TF:** `wrist_3_link → camera_link` is broadcast at startup by `static_tf_transform.py` so the camera depth points can be transformed into `base_link`.
+
+---
+
+---
+
+## 6D Pose Pipeline (Offline)
+
+This runs entirely in the background after the arm circler orbit finishes, before the user activates pick-and-place.
+
+### Data flow
+
+```
+poses.npy                    captured_images_2/
+  [x,y,z,qx,qy,qz,qw]         captured_image_{1..N}.jpg
+        │                              │
+        └──────────┬───────────────────┘
+                   ▼
+         segment_batch.py  (YOLO + SAM2)
+                   │
+                   ▼ segmented/<stem>/<stem>_<class>_<i>_mask.png
+                   │
+                   ▼
+         6D_poses/run.py  ::  run_pose_estimation()
+           │  _pose7_to_ee_T_world()  →  4×4 ee_T_world per view
+           │  cam_T_world_from_ee()   →  4×4 cam_T_world  (T_CAM_FROM_EE applied)
+           │  PoseEstimator.process_multi_view()
+           │    └─ _multi_view_position_only()  (position_only=True, default)
+           │         ├─ per view: mask centroid (u,v) + apparent-size depth
+           │         │    z = fx × (diameter_m/2) / r_px
+           │         └─ RANSAC + weighted DLT triangulation across views
+           │              triangulate_ransac() → triangulate_dlt()
+           │              → triangulated_position_m  (world/base_link frame)
+           │  _add_base_link_poses()  →  position_base_link_m
+           │
+           ▼
+     results/object_poses.npy
+       [{object_name, instance_idx, position_base_link_m, confidence}, ...]
+```
+
+### Key files — `src/planning/planning/6D_poses/`
+
+| File | Role |
+|---|---|
+| `run.py` | Entry point. `run_pose_estimation()` loads poses/images/masks, builds `PoseEstimator`, runs multi-view or single-view estimation, saves `object_poses.npy`. |
+| `pose_estimator.py` | `PoseEstimator` — full pipeline. `process_multi_view()` → RANSAC triangulation. `_multi_view_position_only()` for position-only mode. Also contains `triangulate_dlt()` and `triangulate_ransac()`. |
+| `constants.py` | `OBJECTS` list (`ObjectConfig` entries with `name`, `stl_path`, `color_rgb`, `diameter_m`), `CAMERA_FX/FY`, `T_CAM_FROM_EE` (4×4 camera-from-EE offset), `SEG_NAME_MAP`. |
+| `object_config.py` | `ObjectConfig` dataclass — `name`, `stl_path`, `color_rgb`, `diameter_m`, `is_symmetric`. |
+
+### Camera-from-EE transform (`T_CAM_FROM_EE` in `constants.py`)
+```
++3 cm forward (+x), -13.5 cm above (-z), same orientation as EE.
+```
+Used by `cam_T_world_from_ee(ee_T_world)` in `run.py` to convert each arm pose into a camera-frame pose for triangulation.
+
+### `position_only=True` mode (current default)
+Skips DINOv2 feature extraction and STL rendering. Depth is estimated from apparent mask size:
+```
+z = fx × (diameter_m / 2) / r_px
+```
+where `r_px = sqrt(mask_area / π)`. Then the (x, y) offset from image centre is back-projected. Multi-view positions are triangulated via RANSAC + weighted DLT.
+
+### Output: `results/object_poses.npy`
+List of dicts. Key fields:
+- `object_name` — YOLO class label
+- `position_base_link_m` — `(3,)` float array, object centroid in `base_link` frame (metres)
+- `confidence` — fraction of views that detected the object (0–1)
+- `instance_idx` — 0-indexed for multiple instances of the same class
 
 ---
 
@@ -67,7 +153,7 @@ ArmCircler (arm_circler.py)
 |---|---|---|
 | `main.py` | `UR7e_CubeGrasp` | Top-level state machine. Owns `busy` flag, `job_queue`, and all pick/place logic. Starts locked (`pick_place_enabled=False`) until `/start_pick_place` is received (or `skip_circler:=true`). |
 | `arm_circler.py` | `ArmCircler` | Pre-inspection node. Orbits arm around plate centroid (2 rows × 20 waypoints, look-at orientation). Takes a photo at each waypoint, saves `poses.npy`. Sets `_orbit_done=True` when complete. Launched by bringup unless `skip_circler:=true`. |
-| `commander.py` | `Commander` | Interactive controller run in a **separate terminal**. Blocking `input()` in main thread, ROS spin in background thread. First Enter → publishes `/start_pick_place`. Subsequent inputs → publishes `/set_target_class`. |
+| `commander.py` | `Commander` | Subscribes to `/orbit_done`. On orbit done: runs segmentation subprocess then 6D pose estimation subprocess, loads `results/object_poses.npy`, prints detected objects + positions. User Enter → publishes `/start_pick_place`. Subsequent inputs → publishes `/set_target_class`. |
 | `ik.py` | `IKPlanner` | Wraps `/compute_ik` (MoveIt IK) and `/plan_kinematic_path` (RRTConnect). Default orientation `qy=1` = gripper pointing straight down. |
 | `static_tf_transform.py` | `ConstantTransformPublisher` | Broadcasts `wrist_3_link → camera_link` via a hard-coded 4×4 matrix `G`. |
 
@@ -219,10 +305,73 @@ YOLO model weights: `best.pt` (fine-tuned), `updated.pt`, `yolov8n.pt` — all a
 
 ---
 
+## Planning Algorithm & Final Destination Positions
+
+### Goal
+After 6D pose estimation produces `results/object_poses.npy`, the commander must:
+1. **Order the picks** — sort detected objects into a pick sequence (e.g. nearest to home first, or by object class priority).
+2. **Compute drop positions** — assign a specific `(dx, dy, dz)` in `base_link` to each object so they land at distinct spots on the plate rather than all dropping on the same point.
+3. **Feed positions to `main.py`** — pass pre-computed source positions to the executor so the arm doesn't rely on live detection for objects whose positions are already known.
+
+### Proposed drop position layout
+The plate centroid from `/detected_plate_point` is the centre of the drop zone. Individual drop positions are arranged around it, e.g.:
+```python
+# Simple radial layout — N objects equally spaced on a circle of radius r
+angle = 2 * pi * i / N
+dx = plate_x + r * cos(angle)
+dy = plate_y + r * sin(angle)
+dz = plate_z   # same height as plate centroid
+```
+Radius `r` should be ~0.04–0.06 m (small enough to land on the plate, large enough objects don't collide).
+
+### Proposed pick order
+Sort `object_poses.npy` entries by distance from the home joint position projected to the table, or simply by descending confidence. The commander builds an ordered list of `(object_name, position_base_link_m, drop_position)` tuples.
+
+### Integration path (not yet built)
+**Option A — new topic**: commander publishes pre-computed pick+drop pairs on a new topic, e.g. `/planned_pick_task` (`geometry_msgs/PoseArray` or custom msg). `main.py` subscribes and queues them instead of waiting for live detection.
+
+**Option B — parameter file**: commander writes a JSON/npy file of ordered tasks; `main.py` reads it at startup.
+
+**Option C — extend `/start_pick_place`**: replace the Bool with a custom action/service that carries the full task list.
+
+The cleanest approach is **Option A**: publish a task list once when the user presses Enter, and have `main.py` consume it in order without needing live YOLO at all for the pick sources.
+
+### Current state
+`commander.py` loads `object_poses.npy` and prints it but does **not** yet compute an order or drop destinations, and does **not** pass positions to `main.py`. `main.py` still uses live `/detected_pick_point` and `/detected_plate_point`.
+
+---
+
+## Commander Path & Subprocess Configuration
+
+### Path resolution (`commander.py`)
+`_find_project_root()` walks up from `__file__` until it finds a parent containing `armcircler/`. This works from both the source tree and the installed package (which lives 7 levels deep inside `install/`). The old hardcoded "walk up 4 dirs" only worked from source.
+
+Resolved constants:
+```
+_PROJECT_ROOT = ros_workspaces/                          (contains armcircler/)
+_SIXD_DIR     = ros_workspaces/6D_poses/
+_SEG_SCRIPT   = ros_workspaces/armcircler/segment_batch.py
+_YOLO_WEIGHTS = ros_workspaces/lab5/updated.pt           ← better model, already in lab5/
+_SAM2_PYTHON  = ros_workspaces/sam2/sam2_env/bin/python  ← venv with sam2 + trimesh etc.
+```
+
+Both segmentation and pose estimation subprocesses use `_SAM2_PYTHON` (not the system `/usr/bin/python3`). The sam2 venv has: `sam2`, `ultralytics`, `torch`, `scipy`, `trimesh`, `pyrender`, `scikit-learn` (trimesh/pyrender/sklearn were installed this session via `pip install` into the venv).
+
+### `skip_circler` + `/orbit_done` QoS fix
+When `skip_circler:=true`, the arm circler never runs so `/orbit_done` was never published — commander waited forever. Fix:
+- `main.py`: creates a **TRANSIENT_LOCAL** publisher for `/orbit_done` and publishes `Bool(True)` immediately when `skip_circler=True`.
+- `arm_circler.py`: changed its `/orbit_done` publisher to **TRANSIENT_LOCAL** (required for QoS compatibility).
+- `commander.py`: changed `/orbit_done` subscription to **TRANSIENT_LOCAL** so it receives the retained message even if it starts after `main.py`.
+
+### IMPORTANT: source vs install
+`colcon build` copies Python files — it does **not** symlink. Every change to `src/planning/planning/*.py` must also be manually mirrored to `install/planning/lib/python3.10/site-packages/planning/*.py` until the next `colcon build`. Files changed this session: `commander.py`, `main.py`, `arm_circler.py`.
+
+---
+
 ## Known Issues / Watch-outs
 - Camera launch is **commented out** in `lab5_bringup.launch.py` — must be started separately.
 - `drop_pre_joints` and `drop_joints` IK failures are **not checked** before enqueueing (`None` would be passed to `plan_to_joints`). If IK fails for a drop waypoint, the arm will error mid-sequence.
 - Gripper state (`self.gripper_open`) is assumed to start open; gets out of sync if the gripper is physically closed at startup.
 - If the object moves or is removed after the arm reaches pre-pregrasp, the refined detection will use its new/absent position. The arm will wait indefinitely if no detection arrives after pre-pregrasp.
 - Commander must be run in a separate terminal — stdin is not forwarded to nodes launched via `ros2 launch`.
-- When `skip_circler:=true`, the commander is still useful for switching target class between pick cycles, but the initial Enter press is not needed.
+- When `skip_circler:=true`, commander still runs the full segmentation + pose pipeline on whatever images are already in `captured_images/`, then prompts the user to press Enter.

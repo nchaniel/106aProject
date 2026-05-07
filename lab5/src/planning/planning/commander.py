@@ -15,15 +15,26 @@ import threading
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
 
 # ── path constants ────────────────────────────────────────────────────────────
-_HERE         = os.path.dirname(os.path.abspath(__file__))
-_SIXD_DIR     = os.path.join(_HERE, '6D_poses')
-# Walk up 4 dirs: planning/ → src/ → lab5/ → project root
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+def _find_project_root(start: str) -> str:
+    """Walk up from start until finding a directory that contains 'armcircler/' as a child."""
+    path = start
+    for _ in range(12):
+        if os.path.isdir(os.path.join(path, 'armcircler')):
+            return path
+        path = os.path.dirname(path)
+    raise RuntimeError("Cannot locate project root (no parent with 'armcircler/' found)")
+
+_PROJECT_ROOT = _find_project_root(_HERE)
+_SIXD_DIR     = os.path.join(_PROJECT_ROOT, '6D_poses')
 _SEG_SCRIPT   = os.path.join(_PROJECT_ROOT, 'armcircler', 'segment_batch.py')
-_YOLO_WEIGHTS = os.path.join(_PROJECT_ROOT, 'armcircler', 'best.pt')
+_YOLO_WEIGHTS = os.path.join(_PROJECT_ROOT, 'lab5', 'updated.pt')
+_SAM2_PYTHON  = os.path.join(_PROJECT_ROOT, 'sam2', 'sam2_env', 'bin', 'python')
 
 
 class Commander(Node):
@@ -33,8 +44,9 @@ class Commander(Node):
         self._start_pub = self.create_publisher(Bool,   '/start_pick_place', 1)
         self._class_pub = self.create_publisher(String, '/set_target_class',  1)
 
+        _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._orbit_sub = self.create_subscription(
-            Bool, '/orbit_done', self._on_orbit_done, 1
+            Bool, '/orbit_done', self._on_orbit_done, _latched
         )
 
         self._pose_results = []   # filled after estimation completes
@@ -51,7 +63,7 @@ class Commander(Node):
 
     def _run_pose_pipeline(self):
         cwd        = os.getcwd()
-        images_dir = os.path.join(cwd, 'captured_images_2')
+        images_dir = os.path.join(cwd, 'captured_images')
         masks_dir  = os.path.join(cwd, 'segmented')
         poses_path = os.path.join(cwd, 'poses.npy')
         output_dir = os.path.join(cwd, 'results')
@@ -59,7 +71,7 @@ class Commander(Node):
         # ── Step 1: segmentation ──────────────────────────────────────────────
         print("\n[Commander] Running segmentation (YOLO + SAM2)...")
         seg_ok = self._run_subprocess(
-            [sys.executable, _SEG_SCRIPT,
+            [_SAM2_PYTHON, _SEG_SCRIPT,
              '--input_dir',  images_dir,
              '--output_dir', masks_dir,
              '--yolo',       _YOLO_WEIGHTS],
@@ -85,7 +97,7 @@ class Commander(Node):
             f")"
         )
         pose_ok = self._run_subprocess(
-            [sys.executable, '-c', code],
+            [_SAM2_PYTHON, '-c', code],
             label='pose estimation',
         )
         if not pose_ok:
