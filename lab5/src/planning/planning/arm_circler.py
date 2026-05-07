@@ -59,7 +59,7 @@ class ArmCircler(Node):
 
     def _take_photo(self):
         if self._frame is not None:
-            cv2.imwrite(f'captured_images_1/captured_image_{self._image_count + 1}.jpg', self._frame)
+            cv2.imwrite(f'captured_images_2/captured_image_{self._image_count + 1}.jpg', self._frame)
             self.get_logger().info(f'Saved circler image {self._image_count + 1}')
             self._image_count += 1
 

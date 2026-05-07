@@ -72,14 +72,21 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.15,
         "lift_z_offset":      0.20,
     },
     "blueberry": {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.15,
+        "lift_z_offset":      0.20,
+    },
+    "chocolate": {
+        "x_offset":           0.02,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.15,
         "lift_z_offset":      0.20,
     },
 }
