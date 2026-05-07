@@ -37,14 +37,14 @@ PICK_OFFSETS = {
         "x_offset":           0.01,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.125,
+        "grasp_z_offset":     0.13,
         "lift_z_offset":      0.185,
     },
     "tomato": {
         "x_offset":           0.015,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.145,
         "lift_z_offset":      0.185,
     },
     "cake": {
@@ -58,7 +58,7 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.145,
         "lift_z_offset":      0.20,
     },
     "cherry": {
@@ -72,23 +72,24 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.15,
+        "grasp_z_offset":     0.144,
         "lift_z_offset":      0.20,
     },
     "blueberry": {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.15,
+        "grasp_z_offset":     0.145,
         "lift_z_offset":      0.20,
     },
     "chocolate": {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.15,
+        "grasp_z_offset":     0.143,
         "lift_z_offset":      0.20,
     },
+    
 }
 
 DEFAULT_OFFSETS = {
