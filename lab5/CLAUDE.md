@@ -115,7 +115,7 @@ When the job queue empties, `execute_jobs()` checks `_going_home`:
 In `detection_node.py`, the `target_class` filter explicitly exempts `"plate"` so the plate centroid is always published on `/detected_plate_point` even when a specific object class is targeted.
 
 ### 10. `pick_place_enabled` gate
-`UR7e_CubeGrasp.cube_callback` returns immediately if `self.pick_place_enabled` is False. Set to True either by receiving `/start_pick_place Bool(True)` (from commander) or at startup when the `skip_circler` node parameter is true. When enabled via `/start_pick_place`, `_on_start_pick_place` immediately calls `_go_home()` so the arm moves to the observation pose before waiting for detections.
+`UR7e_CubeGrasp.cube_callback` returns immediately if `self.pick_place_enabled` is False. Set to True either by receiving `/start_pick_place Bool(True)` (from commander) or at startup when `skip_circler:=true` is passed as a launch argument.
 
 ### 11. Arm circler orbit
 `ArmCircler` generates 2 rows × 20 waypoints around the plate centroid using look-at quaternions (`rot_z * rot_y * rot_x`). Row 1 at `height=0.3 m`, row 2 reversed at `height=0.2 m`. Orbit is triggered once on the first `/detected_plate_point`; subsequent messages are ignored (`_orbit_triggered` guard).
@@ -163,7 +163,7 @@ Drop pose: `drop_z + 0.2` for clearance hover, `drop_z + 0.15` for the release p
 ## Home Pose (joint angles, radians)
 
 ```python
-[4.750492095947266, -1.4821723264506836, -2.0345261096954346, -1.2388786238482972, 1.5857458114624023, -3.075918738042013]
+[4.723, -1.576, -2.161, -0.993, 1.580, -3.143]
 # order: shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
 ```
 
