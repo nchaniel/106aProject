@@ -20,6 +20,7 @@ Output layout for each image <stem>:
 
 import argparse
 import os
+import shutil
 import sys
 import glob
 
@@ -37,7 +38,7 @@ SAM2_DIR = _HERE if os.path.isdir(os.path.join(_HERE, "checkpoints")) else os.pa
 
 # config_file is a Hydra config name (resolved internally via pkg://sam2, not a filesystem path)
 # ckpt_path is a real filesystem path — we make it absolute using SAM2_DIR
-BEST_PT = os.path.join(_HERE, "updated.pt")
+BEST_PT = os.path.join(_HERE, "src", "planning", "planning", "updated.pt")
 
 SAM2_CONFIGS = {
     "tiny":  ("configs/sam2.1/sam2.1_hiera_t.yaml",  os.path.join(SAM2_DIR, "checkpoints/sam2.1_hiera_tiny.pt")),
@@ -174,12 +175,17 @@ def main():
                         help="Output root folder (default: ../armcircler/segmented)")
     parser.add_argument("--model",   choices=["tiny", "small", "large"], default="tiny")
     parser.add_argument("--yolo",    default=BEST_PT)
-    parser.add_argument("--conf",    type=float, default=0.25)
+    parser.add_argument("--conf",    type=float, default=0.5)
     parser.add_argument("--classes", nargs="*", default=None)
     args = parser.parse_args()
 
     if not os.path.isdir(args.input_dir):
         sys.exit(f"Input directory not found: {args.input_dir}")
+
+    if os.path.isdir(args.output_dir):
+        shutil.rmtree(args.output_dir)
+        print(f"Cleared output directory: {args.output_dir}")
+    os.makedirs(args.output_dir, exist_ok=True)
 
     image_paths = collect_images(args.input_dir)
     if not image_paths:

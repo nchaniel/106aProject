@@ -6,7 +6,7 @@ from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 import os
 
 def generate_launch_description():
@@ -42,13 +42,18 @@ def generate_launch_description():
     # )
 
 
+    _model_path = os.path.join(
+        get_package_prefix('planning'),
+        'lib', 'python3.10', 'site-packages', 'planning', 'updated.pt'
+    )
+
     # Perception node
     perception_node = Node(
         package='perception',
         executable='detection_node',
         name='detection_node',
         output='screen',
-        parameters=[{'target_class': target_class}]
+        parameters=[{'target_class': target_class, 'model_path': _model_path}]
     )
 
     # Planning TF node
