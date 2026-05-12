@@ -3,6 +3,8 @@
 #   ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=1280x720x30
 # To re-enable camera launch from bringup, uncomment realsense_launch in lab5_bringup.launch.py.
 
+import json
+
 # ROS Libraries
 import tf2_ros
 from std_srvs.srv import Trigger
@@ -108,7 +110,8 @@ class UR7e_CubeGrasp(Node):
         self.cube_pub = self.create_subscription(PointStamped, '/detected_pick_point', self.cube_callback, 1)
         self.class_sub = self.create_subscription(String, '/detected_class', self.class_callback, 10)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
-        self.plate_sub = self.create_subscription(PointStamped,'/detected_plate_point',self.plate_callback,10)
+        self.plate_sub = self.create_subscription(PointStamped, '/detected_plate_point', self.plate_callback, 10)
+        self._tasks_sub = self.create_subscription(String, '/planned_pick_tasks', self._on_tasks, 1)
 
         self.exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -149,6 +152,9 @@ class UR7e_CubeGrasp(Node):
         self._refining = False        # True from pre-pregrasp dispatch until refined centroid is used
         self._at_pre_pregrasp = False # True only after the arm has physically arrived at pre-pregrasp
         self.gripper_open = True  # assume physical gripper starts open
+
+        self._task_queue = []  # ordered list from /planned_pick_tasks
+        self._task_idx   = 0   # index of next task to execute
 
         # Image Taking
         self.subscription = self.create_subscription(Image,'/camera/camera/color/image_raw',self.photo_callback,10)
@@ -334,6 +340,77 @@ class UR7e_CubeGrasp(Node):
         self.execute_jobs()
 
 
+    def _on_tasks(self, msg: String):
+        try:
+            self._task_queue = json.loads(msg.data)
+            self._task_idx   = 0
+            self.get_logger().info(f"Received {len(self._task_queue)} pre-computed pick tasks.")
+        except Exception as e:
+            self.get_logger().error(f"Failed to parse /planned_pick_tasks: {e}")
+
+    def _start_precomputed_task(self):
+        """Execute the next task from the pre-computed list (no live-detection refinement needed)."""
+        task = self._task_queue[self._task_idx]
+        self._task_idx += 1
+
+        name = task['object_name']
+        pos  = task['position']
+        cx, cy, cz = float(pos[0]), float(pos[1]), float(pos[2])
+
+        self.detected_class = name
+        self.busy = True
+
+        self.get_logger().info(
+            f"Pre-computed task [{self._task_idx}/{len(self._task_queue)}]: "
+            f"{name} at ({cx:.3f}, {cy:.3f}, {cz:.3f})"
+        )
+
+        if self.plate_pose is None:
+            self.get_logger().error("No plate pose — cannot execute task.")
+            self.busy = False
+            return
+
+        drop_x = self.plate_pose.point.x
+        drop_y = self.plate_pose.point.y
+        drop_z = self.plate_pose.point.z
+
+        offsets            = PICK_OFFSETS.get(name, DEFAULT_OFFSETS)
+        x_offset           = offsets["x_offset"]
+        y_offset           = offsets["y_offset"]
+        pre_grasp_z_offset = offsets["pre_grasp_z_offset"]
+        grasp_z_offset     = offsets["grasp_z_offset"]
+        lift_z_offset      = offsets["lift_z_offset"]
+
+        pre_grasp_joints = self.ik_planner.compute_ik(
+            self.joint_state, cx + x_offset, cy + y_offset, cz + pre_grasp_z_offset)
+        grasp_joints = self.ik_planner.compute_ik(
+            pre_grasp_joints, cx + x_offset, cy + y_offset, cz + grasp_z_offset)
+        lift_joints = self.ik_planner.compute_ik(
+            grasp_joints, cx + x_offset, cy + y_offset, cz + lift_z_offset)
+        drop_pre_joints = self.ik_planner.compute_ik(
+            lift_joints, drop_x, drop_y, drop_z + 0.2)
+        drop_joints = self.ik_planner.compute_ik(
+            drop_pre_joints, drop_x, drop_y, drop_z + 0.15)
+
+        if pre_grasp_joints is None or grasp_joints is None or lift_joints is None:
+            self.get_logger().error(f"IK failed for pre-computed task '{name}' — skipping.")
+            self.busy = False
+            # Try the next task rather than hanging
+            if self._task_idx < len(self._task_queue):
+                self._start_precomputed_task()
+            return
+
+        self.job_queue.extend([
+            pre_grasp_joints,
+            grasp_joints,
+            'toggle_grip',
+            lift_joints,
+            drop_pre_joints,
+            drop_joints,
+            'toggle_grip',
+        ])
+        self.execute_jobs()
+
     def execute_jobs(self):
         if not self.job_queue:
             if self._refining:
@@ -352,6 +429,14 @@ class UR7e_CubeGrasp(Node):
             self._going_home = False
             self.busy = False
             self.cube_pose = None
+
+            # If there are more pre-computed tasks, start the next one automatically
+            if self._task_idx < len(self._task_queue):
+                self.get_logger().info(
+                    f"Home reached. Starting next task ({self._task_idx + 1}/{len(self._task_queue)})."
+                )
+                self._start_precomputed_task()
+                return
 
             self.get_logger().info("Home reached. Ready for detection.")
             return

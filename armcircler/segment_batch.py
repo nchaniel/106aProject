@@ -7,7 +7,7 @@ output: /armcircler/segmented
 
 Current Models:
     SAM2: tiny
-    YOLO: best.pt (custom trained)
+    YOLO: updated.pt (custom trained)
     --conf        YOLO confidence threshold 0-1  (default: 0.25)
     --classes     Space-separated class names to keep, e.g. --classes person cup
 
@@ -23,6 +23,7 @@ import os
 import sys
 import glob
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
@@ -37,7 +38,7 @@ SAM2_DIR = _HERE if os.path.isdir(os.path.join(_HERE, "checkpoints")) else os.pa
 
 # config_file is a Hydra config name (resolved internally via pkg://sam2, not a filesystem path)
 # ckpt_path is a real filesystem path — we make it absolute using SAM2_DIR
-BEST_PT = os.path.join(_HERE, "best.pt")
+BEST_PT = os.path.join(_HERE, "..", "lab5", "updated.pt")
 
 SAM2_CONFIGS = {
     "tiny":  ("configs/sam2.1/sam2.1_hiera_t.yaml",  os.path.join(SAM2_DIR, "checkpoints/sam2.1_hiera_tiny.pt")),
@@ -223,7 +224,9 @@ def main():
         image = np.array(Image.open(img_path).convert("RGB"))
 
         # step 1: YOLO tells us where the objects are (bounding boxes)
-        detections = run_yolo(yolo_model, image, args.conf, keep_classes)
+        # ultralytics assumes BGR for numpy input; PIL loads RGB, so convert before YOLO
+        yolo_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        detections = run_yolo(yolo_model, yolo_image, args.conf, keep_classes)
         if not detections:
             print("  No detections — skipping.\n")
             skipped += 1

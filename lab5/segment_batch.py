@@ -24,6 +24,7 @@ import shutil
 import sys
 import glob
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
@@ -229,7 +230,9 @@ def main():
         image = np.array(Image.open(img_path).convert("RGB"))
 
         # step 1: YOLO tells us where the objects are (bounding boxes)
-        detections = run_yolo(yolo_model, image, args.conf, keep_classes)
+        # ultralytics assumes BGR for numpy input; PIL loads RGB, so convert before YOLO
+        yolo_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        detections = run_yolo(yolo_model, yolo_image, args.conf, keep_classes)
         if not detections:
             print("  No detections — skipping.\n")
             skipped += 1

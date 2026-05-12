@@ -7,6 +7,7 @@ commander.py — orchestrates the full pipeline:
   5. Accept class-switch commands between pick cycles
 """
 
+import json
 import os
 import sys
 import subprocess
@@ -17,6 +18,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
+from geometry_msgs.msg import PointStamped
 
 # ── path constants ────────────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,15 +43,36 @@ class Commander(Node):
     def __init__(self):
         super().__init__('commander')
 
-        self._start_pub = self.create_publisher(Bool,   '/start_pick_place', 1)
-        self._class_pub = self.create_publisher(String, '/set_target_class',  1)
+        self._start_pub = self.create_publisher(Bool,   '/start_pick_place',   1)
+        self._class_pub = self.create_publisher(String, '/set_target_class',   1)
+        self._tasks_pub = self.create_publisher(String, '/planned_pick_tasks', 1)
 
         _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._orbit_sub = self.create_subscription(
             Bool, '/orbit_done', self._on_orbit_done, _latched
         )
+        self._plate_sub = self.create_subscription(
+            PointStamped, '/detected_plate_point', self._on_plate_point, 10
+        )
 
         self._pose_results = []   # filled after estimation completes
+        self._plate_pos    = None # (x, y, z) of plate in base_link, from live detection
+
+    def _on_plate_point(self, msg: PointStamped):
+        if self._plate_pos is None:
+            self._plate_pos = (msg.point.x, msg.point.y, msg.point.z)
+
+    def _sorted_tasks(self):
+        """Return pose results sorted by XY distance to plate (ascending), then Z (ascending)."""
+        if not self._plate_pos:
+            self.get_logger().warning("[Commander] No plate position — task order will be arbitrary.")
+            return self._pose_results
+        px, py, _ = self._plate_pos
+        def _key(r):
+            pos = r['position_base_link_m']
+            xy_dist = ((float(pos[0]) - px) ** 2 + (float(pos[1]) - py) ** 2) ** 0.5
+            return (xy_dist, float(pos[2]))
+        return sorted(self._pose_results, key=_key)
 
     # ── orbit signal ──────────────────────────────────────────────────────────
 
@@ -74,7 +97,8 @@ class Commander(Node):
             [_SAM2_PYTHON, _SEG_SCRIPT,
              '--input_dir',  images_dir,
              '--output_dir', masks_dir,
-             '--yolo',       _YOLO_WEIGHTS],
+             '--yolo',       _YOLO_WEIGHTS,
+             '--conf',       '0.75'],
             label='segmentation',
         )
         if not seg_ok:
@@ -106,7 +130,8 @@ class Commander(Node):
         # ── Step 3: load + display results ───────────────────────────────────
         results_path = os.path.join(output_dir, 'object_poses.npy')
         if pose_ok and os.path.isfile(results_path):
-            self._pose_results = list(np.load(results_path, allow_pickle=True))
+            raw = list(np.load(results_path, allow_pickle=True))
+            self._pose_results = self._filter_pose_results(raw)
             self._print_objects()
         else:
             self._pose_results = []
@@ -123,6 +148,35 @@ class Commander(Node):
             return False
 
     # ── user interaction (blocks in background thread — stdin is safe here) ───
+
+    def _filter_pose_results(self, results):
+        """Remove bad triangulations; keep one best instance per class."""
+        valid = []
+        for r in results:
+            pos  = r.get('position_base_link_m')
+            conf = float(r.get('confidence', 0.0))
+            if pos is None:
+                continue
+            z = float(pos[2])
+            if z < -0.03 or z > 0.15:   # outside plausible table-surface range
+                continue
+            if conf <= 0.6:
+                continue
+            valid.append(r)
+
+        # Per class, keep only the highest-confidence instance
+        by_class = {}
+        for r in valid:
+            name = r.get('object_name', '?')
+            conf = float(r.get('confidence', 0.0))
+            if name not in by_class or conf > float(by_class[name].get('confidence', 0.0)):
+                by_class[name] = r
+
+        n_dropped = len(results) - len(by_class)
+        if n_dropped:
+            print(f"[Commander] Filtered {n_dropped} low-quality detections "
+                  f"({len(by_class)} unique objects remain).")
+        return list(by_class.values())
 
     def _print_objects(self):
         print("\n[Commander] ══ Detected Objects ══")
@@ -147,6 +201,24 @@ class Commander(Node):
             input("[Commander] Press Enter to activate pick-and-place: ")
         except EOFError:
             return
+
+        # Publish sorted task list so main.py can execute picks in order
+        # using the pre-computed 6D positions instead of live detection.
+        ordered = self._sorted_tasks()
+        if ordered:
+            tasks = [
+                {"object_name": r["object_name"],
+                 "position":    [float(v) for v in r["position_base_link_m"]]}
+                for r in ordered
+            ]
+            task_msg = String()
+            task_msg.data = json.dumps(tasks)
+            self._tasks_pub.publish(task_msg)
+            print("[Commander] Pick order:")
+            for i, t in enumerate(tasks):
+                p = t["position"]
+                print(f"  [{i+1}] {t['object_name']:<20s}  pos=({p[0]:.3f}, {p[1]:.3f}, {p[2]:.3f})")
+            print()
 
         msg = Bool()
         msg.data = True
