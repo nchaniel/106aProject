@@ -169,10 +169,10 @@ def main():
         description="Batch YOLO→SAM2 segmentation for a folder of images."
     )
     # these are the same knobs as segment_v2.py, just with an input folder instead of a single image
-    parser.add_argument("--input_dir",  default="../armcircler/captured_images",
-                        help="Folder of input images (default: ../armcircler/captured_images)")
-    parser.add_argument("--output_dir", default="../armcircler/segmented",
-                        help="Output root folder (default: ../armcircler/segmented)")
+    parser.add_argument("--input_dir",  default="../lab5/captured_images",
+                        help="Folder of input images (default: ../lab5/captured_images)")
+    parser.add_argument("--output_dir", default="../lab5/segmented",
+                        help="Output root folder (default: ../lab5/segmented)")
     parser.add_argument("--model",   choices=["tiny", "small", "large"], default="tiny")
     parser.add_argument("--yolo",    default=BEST_PT)
     parser.add_argument("--conf",    type=float, default=0.5)
