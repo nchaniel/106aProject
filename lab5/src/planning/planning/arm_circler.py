@@ -1,11 +1,10 @@
-import sys
-import select
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PointStamped
 from sensor_msgs.msg import JointState, Image
@@ -30,7 +29,9 @@ class ArmCircler(Node):
             Image, '/camera/camera/color/image_raw', self._photo_callback, 10
         )
 
-        self._start_pub = self.create_publisher(Bool, '/start_pick_place', 1)
+        self._start_pub   = self.create_publisher(Bool, '/start_pick_place', 1)
+        _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._orbit_done_pub = self.create_publisher(Bool, '/orbit_done', _latched)
 
         self._exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -42,14 +43,10 @@ class ArmCircler(Node):
 
         self.joint_state = None
         self._orbit_triggered = False
-        self._orbit_done = False
 
         self._bridge = CvBridge()
         self._frame = None
         self._image_count = 0
-
-        # Non-blocking stdin check — fires after orbit is done
-        self._stdin_timer = self.create_timer(0.1, self._check_stdin)
 
     def _joint_state_callback(self, msg: JointState):
         self.joint_state = msg
@@ -59,7 +56,7 @@ class ArmCircler(Node):
 
     def _take_photo(self):
         if self._frame is not None:
-            cv2.imwrite(f'captured_images/circler_{self._image_count + 1}.jpg', self._frame)
+            cv2.imwrite(f'captured_images/captured_image_{self._image_count + 1}.jpg', self._frame)
             self.get_logger().info(f'Saved circler image {self._image_count + 1}')
             self._image_count += 1
 
@@ -134,8 +131,10 @@ class ArmCircler(Node):
 
     def _execute_jobs(self):
         if not self.job_queue:
-            self._orbit_done = True
-            self.get_logger().info("Orbit complete. Press Enter to begin pick-and-place.")
+            self.get_logger().info("Orbit complete — signalling commander.")
+            msg = Bool()
+            msg.data = True
+            self._orbit_done_pub.publish(msg)
             return
 
         self.get_logger().info(f"Executing waypoint ({len(self.job_queue)} remaining).")
@@ -171,17 +170,6 @@ class ArmCircler(Node):
             self._execute_jobs()
         except Exception as e:
             self.get_logger().error(f'Trajectory execution failed: {e}')
-
-    def _check_stdin(self):
-        if not self._orbit_done:
-            return
-        if select.select([sys.stdin], [], [], 0)[0]:
-            sys.stdin.readline()
-            self.get_logger().info("Enter pressed — switching to pick-and-place mode.")
-            msg = Bool()
-            msg.data = True
-            self._start_pub.publish(msg)
-            self._stdin_timer.cancel()
 
 
 def main(args=None):

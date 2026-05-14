@@ -4,9 +4,9 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 import os
 
 def generate_launch_description():
@@ -19,6 +19,7 @@ def generate_launch_description():
     robot_ip = LaunchConfiguration("robot_ip", default="192.168.1.102")
     shutdown_on_exit = LaunchConfiguration("shutdown_on_exit", default="true")
     target_class = LaunchConfiguration("target_class", default="")
+    skip_circler = LaunchConfiguration("skip_circler", default="false")
 
     # -------------------------
     # Includes & Nodes
@@ -41,13 +42,18 @@ def generate_launch_description():
     # )
 
 
+    _model_path = os.path.join(
+        get_package_prefix('planning'),
+        'lib', 'python3.10', 'site-packages', 'planning', 'updated.pt'
+    )
+
     # Perception node
     perception_node = Node(
         package='perception',
         executable='detection_node',
         name='detection_node',
         output='screen',
-        parameters=[{'target_class': target_class}]
+        parameters=[{'target_class': target_class, 'model_path': _model_path}]
     )
 
     # Planning TF node
@@ -80,12 +86,13 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Arm circler node (runs first; publishes /start_pick_place on Enter)
+    # Arm circler node (skipped when skip_circler:=true)
     arm_circler_node = Node(
         package='planning',
         executable='circler',
         name='arm_circler',
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(skip_circler)
     )
 
     # Main pick/place node
@@ -93,7 +100,8 @@ def generate_launch_description():
         package='planning',
         executable='main',
         name='cube_grasp',
-        output='screen'
+        output='screen',
+        parameters=[{'skip_circler': skip_circler}]
     )
 
     # -------------------------

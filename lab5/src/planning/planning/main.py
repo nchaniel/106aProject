@@ -3,6 +3,8 @@
 #   ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=1280x720x30
 # To re-enable camera launch from bringup, uncomment realsense_launch in lab5_bringup.launch.py.
 
+import json
+
 # ROS Libraries
 import tf2_ros
 from std_srvs.srv import Trigger
@@ -10,6 +12,7 @@ from std_msgs.msg import String, Bool
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PointStamped
 from trajectory_msgs.msg import JointTrajectory
@@ -34,22 +37,22 @@ from scipy.spatial.transform import Rotation as R
 #   lift_z_offset             : height above centroid after grasping
 PICK_OFFSETS = {
     "apple": {
-        "x_offset":           0.01,
+        "x_offset":           0.005,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.125,
+        "grasp_z_offset":     0.13,
         "lift_z_offset":      0.185,
     },
     "tomato": {
         "x_offset":           0.015,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.145,
         "lift_z_offset":      0.185,
     },
     "cake": {
-        "x_offset":           0.02,
-        "y_offset":           0.005,
+        "x_offset":           0.005,
+        "y_offset":           0.00,
         "pre_grasp_z_offset": 0.20,
         "grasp_z_offset":     0.14,
         "lift_z_offset":      0.20,
@@ -58,7 +61,7 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.145,
         "lift_z_offset":      0.20,
     },
     "cherry": {
@@ -72,16 +75,24 @@ PICK_OFFSETS = {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.144,
         "lift_z_offset":      0.20,
     },
     "blueberry": {
+        "x_offset":           0.01,
+        "y_offset":           0.005,
+        "pre_grasp_z_offset": 0.20,
+        "grasp_z_offset":     0.145,
+        "lift_z_offset":      0.20,
+    },
+    "chocolate": {
         "x_offset":           0.02,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
-        "grasp_z_offset":     0.14,
+        "grasp_z_offset":     0.143,
         "lift_z_offset":      0.20,
     },
+    
 }
 
 DEFAULT_OFFSETS = {
@@ -99,7 +110,8 @@ class UR7e_CubeGrasp(Node):
         self.cube_pub = self.create_subscription(PointStamped, '/detected_pick_point', self.cube_callback, 1)
         self.class_sub = self.create_subscription(String, '/detected_class', self.class_callback, 10)
         self.joint_state_sub = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 1)
-        self.plate_sub = self.create_subscription(PointStamped,'/detected_plate_point',self.plate_callback,10)
+        self.plate_sub = self.create_subscription(PointStamped, '/detected_plate_point', self.plate_callback, 10)
+        self._tasks_sub = self.create_subscription(String, '/planned_pick_tasks', self._on_tasks, 1)
 
         self.exec_ac = ActionClient(
             self, FollowJointTrajectory,
@@ -108,8 +120,16 @@ class UR7e_CubeGrasp(Node):
 
         self.gripper_cli = self.create_client(Trigger, '/toggle_gripper')
 
-        self.pick_place_enabled = False
+        self.declare_parameter('skip_circler', False)
+        self.pick_place_enabled = self.get_parameter('skip_circler').value
         self._start_sub = self.create_subscription(Bool, '/start_pick_place', self._on_start_pick_place, 1)
+        _latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._orbit_done_pub = self.create_publisher(Bool, '/orbit_done', _latched)
+        if self.pick_place_enabled:
+            self.get_logger().info("skip_circler=true: pick-and-place active immediately.")
+            _msg = Bool()
+            _msg.data = True
+            self._orbit_done_pub.publish(_msg)
 
         self.busy = False
         self.cube_pose = None
@@ -127,11 +147,17 @@ class UR7e_CubeGrasp(Node):
         #   ros2 topic echo /joint_states --once
         # and fill in the 6 joint angles below in the order:
         #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
-        self._home_joints = [4.723223686218262, -1.5760652027525843, -2.1608810424804688, -0.9934399288943787, 1.579869031906128, -3.142892901097433]
+        self._home_joints = [4.750492095947266, -1.4821723264506836, -2.0345261096954346, -1.2388786238482972, 1.5857458114624023, -3.075918738042013]
         self._going_home = False
         self._refining = False        # True from pre-pregrasp dispatch until refined centroid is used
         self._at_pre_pregrasp = False # True only after the arm has physically arrived at pre-pregrasp
         self.gripper_open = True  # assume physical gripper starts open
+
+        self._task_queue     = []   # ordered list from /planned_pick_tasks
+        self._task_idx       = 0    # index of the task currently being executed
+        self._pick_completed = False  # True when a pick just finished (used to advance task index)
+
+        self._class_target_pub = self.create_publisher(String, '/set_target_class', 1)
 
         # Image Taking
         self.subscription = self.create_subscription(Image,'/camera/camera/color/image_raw',self.photo_callback,10)
@@ -158,7 +184,8 @@ class UR7e_CubeGrasp(Node):
     def _on_start_pick_place(self, msg: Bool):
         if msg.data and not self.pick_place_enabled:
             self.pick_place_enabled = True
-            self.get_logger().info("Pick-and-place mode activated.")
+            self.get_logger().info("Pick-and-place mode activated — moving to observation pose.")
+            self._go_home()
 
     def class_callback(self, msg: String):
         self.detected_class = msg.data
@@ -176,7 +203,7 @@ class UR7e_CubeGrasp(Node):
         self.execute_jobs()
     def plate_callback(self, msg: PointStamped):
         self.plate_pose = msg
-        self.get_logger().info("Plate updated")
+        #self.get_logger().info("Plate updated")
 
 
     def cube_callback(self, pick_pose):
@@ -246,9 +273,20 @@ class UR7e_CubeGrasp(Node):
         cy = pick_pose.point.y
         cz = pick_pose.point.z
 
-        drop_x = self.plate_pose.point.x
-        drop_y = self.plate_pose.point.y
-        drop_z = self.plate_pose.point.z
+        if self._task_idx < len(self._task_queue):
+            seg_pos = self._task_queue[self._task_idx].get('position', None)
+            if seg_pos is not None:
+                drop_x = float(seg_pos[0])
+                drop_y = float(seg_pos[1])
+                drop_z = float(seg_pos[2])
+            else:
+                drop_x = self.plate_pose.point.x
+                drop_y = self.plate_pose.point.y
+                drop_z = self.plate_pose.point.z
+        else:
+            drop_x = self.plate_pose.point.x
+            drop_y = self.plate_pose.point.y
+            drop_z = self.plate_pose.point.z
 
         offsets = PICK_OFFSETS.get(self.detected_class, DEFAULT_OFFSETS)
         self.get_logger().info(
@@ -276,10 +314,10 @@ class UR7e_CubeGrasp(Node):
             grasp_joints, cx + x_offset, cy + y_offset, cz + lift_z_offset
         )
         drop_pre_joints = self.ik_planner.compute_ik(
-            lift_joints, drop_x, drop_y, drop_z + 0.2
+            lift_joints, drop_x, drop_y, drop_z + 0.05
         )
         drop_joints = self.ik_planner.compute_ik(
-            drop_pre_joints, drop_x, drop_y, drop_z + 0.15
+            drop_pre_joints, drop_x, drop_y, drop_z
         )
 
         if pre_grasp_joints is None:
@@ -316,6 +354,29 @@ class UR7e_CubeGrasp(Node):
         self.execute_jobs()
 
 
+    def _on_tasks(self, msg: String):
+        try:
+            self._task_queue = json.loads(msg.data)
+            self._task_idx   = 0
+            self.get_logger().info(f"Received {len(self._task_queue)} pre-computed pick tasks.")
+        except Exception as e:
+            self.get_logger().error(f"Failed to parse /planned_pick_tasks: {e}")
+            return
+
+        # Target the first class so detection_node starts publishing the right object
+        self._set_current_task_class()
+
+    def _set_current_task_class(self):
+        """Tell detection_node which class to target for the current task."""
+        if self._task_idx < len(self._task_queue):
+            cls = self._task_queue[self._task_idx]['object_name']
+            msg = String()
+            msg.data = cls
+            self._class_target_pub.publish(msg)
+            self.get_logger().info(
+                f"Task {self._task_idx + 1}/{len(self._task_queue)}: targeting '{cls}'"
+            )
+
     def execute_jobs(self):
         if not self.job_queue:
             if self._refining:
@@ -325,6 +386,7 @@ class UR7e_CubeGrasp(Node):
 
             if not self._going_home:
                 self.get_logger().info("Pick/place complete → going home")
+                self._pick_completed = True
                 self.cube_pose = None
                 self._going_home = True
                 self._go_home()
@@ -335,6 +397,20 @@ class UR7e_CubeGrasp(Node):
             self.busy = False
             self.cube_pose = None
 
+            # If a pick just finished and there are more tasks, advance to the next class
+            if self._pick_completed and self._task_idx < len(self._task_queue):
+                self._pick_completed = False
+                self._task_idx += 1
+                if self._task_idx < len(self._task_queue):
+                    self.get_logger().info(
+                        f"Home reached. Advancing to task {self._task_idx + 1}/{len(self._task_queue)}."
+                    )
+                    self._set_current_task_class()
+                else:
+                    self.get_logger().info("All planned tasks complete.")
+                return
+
+            self._pick_completed = False
             self.get_logger().info("Home reached. Ready for detection.")
             return
 
