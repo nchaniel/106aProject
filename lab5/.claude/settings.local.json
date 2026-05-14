@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import reportlab; print\\('reportlab ok'\\)\")",
+      "Bash(pip show *)",
+      "Bash(find /c/Users/natha -name \"python.exe\" 2>/dev/null | grep -v \"AppData/Local/Microsoft/WindowsApps\" | grep -v \"Autodesk\" | grep -v \"KiCad\" | head -10)",
+      "Read(//c/Users/natha/**)",
+      "Bash(/c/Users/natha/AppData/Local/Programs/Python/Python314/python.exe -c 'import reportlab; print\\('\\\\''reportlab ok'\\\\''\\)')",
+      "Bash(/c/Users/natha/AppData/Local/Programs/Python/Python314/python.exe -m pip show reportlab)",
+      "Bash(/c/Users/natha/AppData/Local/Programs/Python/Python314/python.exe -m pip install reportlab)",
+      "Bash(/c/Users/natha/AppData/Local/Programs/Python/Python314/python.exe generate_guide.py)",
+      "Bash(cp captured_images/captured_image_1.jpg project-report-site/assets/captured_1.jpg)",
+      "Bash(cp captured_images/captured_image_10.jpg project-report-site/assets/captured_10.jpg)",
+      "Bash(cp captured_images/captured_image_15.jpg project-report-site/assets/captured_15.jpg)",
+      "Bash(cp captured_images/captured_image_20.jpg project-report-site/assets/captured_20.jpg)",
+      "Bash(cp captured_images/captured_image_25.jpg project-report-site/assets/captured_25.jpg)"
+    ]
+  }
+}
