@@ -34,7 +34,7 @@ def _find_project_root(start: str) -> str:
 
 _PROJECT_ROOT = _find_project_root(_HERE)
 _SIXD_DIR     = os.path.join(_PROJECT_ROOT, 'lab5', 'src', 'planning', 'planning', '6D_poses')
-_SEG_SCRIPT   = os.path.join(_PROJECT_ROOT, 'armcircler', 'segment_batch.py')
+_SEG_SCRIPT   = os.path.join(_PROJECT_ROOT, 'lab5', 'src', 'perception', 'perception', 'segment_batch.py')
 _YOLO_WEIGHTS = os.path.join(_PROJECT_ROOT, 'lab5', 'updated.pt')
 _SAM2_PYTHON  = os.path.join(_PROJECT_ROOT, 'sam2', 'sam2_env', 'bin', 'python')
 

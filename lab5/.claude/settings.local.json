@@ -13,7 +13,12 @@
       "Bash(cp captured_images/captured_image_10.jpg project-report-site/assets/captured_10.jpg)",
       "Bash(cp captured_images/captured_image_15.jpg project-report-site/assets/captured_15.jpg)",
       "Bash(cp captured_images/captured_image_20.jpg project-report-site/assets/captured_20.jpg)",
-      "Bash(cp captured_images/captured_image_25.jpg project-report-site/assets/captured_25.jpg)"
+      "Bash(cp captured_images/captured_image_25.jpg project-report-site/assets/captured_25.jpg)",
+      "Bash(grep -rn \"checkpoint\\\\|sam2_checkpoint\\\\|model_cfg\\\\|model_type\" /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/armcircler/segment_batch.py 2>/dev/null | head -20)",
+      "Read(//home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/armcircler/**)",
+      "Bash(ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/checkpoints/ 2>/dev/null | head -10 && echo \"---\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/sam2_env/bin/python 2>/dev/null && echo \"sam2_env python exists\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/lab5/updated.pt 2>/dev/null && echo \"updated.pt exists\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/lab5/src/planning/planning/6D_poses/models/ 2>/dev/null | head -15)",
+      "Read(//home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/checkpoints/**)",
+      "Read(//usr/bin/**)"
     ]
   }
 }

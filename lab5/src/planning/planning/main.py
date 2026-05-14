@@ -103,6 +103,11 @@ DEFAULT_OFFSETS = {
     "lift_z_offset":      0.185,
 }
 
+# Applied to the z from the 6D RANSAC pipeline when placing back at detected position.
+# RANSAC tends to overestimate z (object centroid appears higher than actual).
+# Tune this: negative = lower the drop point, positive = raise it.
+DROP_Z_CORRECTION = -0.05
+
 class UR7e_CubeGrasp(Node):
     def __init__(self):
         super().__init__('cube_grasp')
@@ -226,6 +231,18 @@ class UR7e_CubeGrasp(Node):
         if self.busy:
             return
 
+        # When executing a pre-planned task queue, reject detections that don't
+        # match the expected class. This prevents a stale detection for the
+        # previous object (published before detection_node processes the class
+        # switch) from triggering a pre-pregrasp move to the wrong location.
+        if self._task_queue and self._task_idx < len(self._task_queue):
+            expected_class = self._task_queue[self._task_idx]['object_name']
+            if self.detected_class != expected_class:
+                self.get_logger().debug(
+                    f"Ignoring detection for '{self.detected_class}', expecting '{expected_class}'"
+                )
+                return
+
         if self.joint_state is None:
             self.get_logger().debug("No joint state yet, cannot proceed")
             return
@@ -278,7 +295,7 @@ class UR7e_CubeGrasp(Node):
             if seg_pos is not None:
                 drop_x = float(seg_pos[0])
                 drop_y = float(seg_pos[1])
-                drop_z = float(seg_pos[2])
+                drop_z = float(seg_pos[2]) + DROP_Z_CORRECTION
             else:
                 drop_x = self.plate_pose.point.x
                 drop_y = self.plate_pose.point.y
