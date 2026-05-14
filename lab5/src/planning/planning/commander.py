@@ -206,11 +206,13 @@ class Commander(Node):
         # using the pre-computed 6D positions instead of live detection.
         ordered = self._sorted_tasks()
         if ordered:
-            tasks = [
-                {"object_name": r["object_name"],
-                 "position":    [float(v) for v in r["position_base_link_m"]]}
-                for r in ordered
-            ]
+            tasks = []
+            for r in ordered:
+                pos = r["position_base_link_m"]
+                tasks.append({
+                    "object_name": r["object_name"],
+                    "position":    [float(v) for v in pos],
+                })
             task_msg = String()
             task_msg.data = json.dumps(tasks)
             self._tasks_pub.publish(task_msg)
@@ -223,25 +225,7 @@ class Commander(Node):
         msg = Bool()
         msg.data = True
         self._start_pub.publish(msg)
-        print("[Commander] Pick-and-place active!\n")
-
-        while rclpy.ok():
-            try:
-                user_in = input(
-                    "[Commander] Class to pick  (or 'list' / 'q' to quit): "
-                ).strip()
-            except EOFError:
-                break
-
-            if user_in == 'q':
-                break
-            elif user_in == 'list':
-                self._print_objects()
-            elif user_in:
-                msg = String()
-                msg.data = user_in
-                self._class_pub.publish(msg)
-                print(f"[Commander] Target → {user_in}")
+        print("[Commander] Pick-and-place active — executing automatically.")
 
 
 def main(args=None):

@@ -185,7 +185,7 @@ class DetectionNode(Node):
                 if class_name == "plate":
                     self.plate_point_pub.publish(pt_base)
                     self.plate_position = pt_base
-                    self.get_logger().info("Published PLATE")
+                    #self.get_logger().info("Published PLATE")
                     continue
 
                 if self.plate_position is not None:
@@ -194,7 +194,7 @@ class DetectionNode(Node):
                     dist = (dx**2 + dy**2) ** 0.5
 
                     if dist < self.plate_radius:
-                        self.get_logger().info(f"Ignoring {class_name} inside plate")
+                        #self.get_logger().info(f"Ignoring {class_name} inside plate")
                         continue
 
                 
