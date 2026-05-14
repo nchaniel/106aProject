@@ -18,7 +18,9 @@
       "Read(//home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/armcircler/**)",
       "Bash(ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/checkpoints/ 2>/dev/null | head -10 && echo \"---\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/sam2_env/bin/python 2>/dev/null && echo \"sam2_env python exists\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/lab5/updated.pt 2>/dev/null && echo \"updated.pt exists\" && ls /home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/lab5/src/planning/planning/6D_poses/models/ 2>/dev/null | head -15)",
       "Read(//home/cc/ee106a/sp26/class/ee106a-abu/ros_workspaces/sam2/checkpoints/**)",
-      "Read(//usr/bin/**)"
+      "Read(//usr/bin/**)",
+      "Bash(npm *)",
+      "Skill(ui-ux-pro-max)"
     ]
   }
 }
