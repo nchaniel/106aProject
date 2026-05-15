@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vision-Guided Pick and Place with UR7e — MEC106A Lab 5</title>
+<meta name="theme-color" content="#0a0e1a" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Ambient gradient orbs that drift behind the page -->
+<div class="bg-orbs" aria-hidden="true">
+  <span class="orb orb-a"></span>
+  <span class="orb orb-b"></span>
+  <span class="orb orb-c"></span>
+</div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark"></span>
+      <span class="brand-text">UR7e&nbsp;Vision&nbsp;Pick &amp; Place</span>
+    </a>
+    <nav class="nav">
+      <a href="#overview">Overview</a>
+      <a href="#gallery">Gallery</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#results">Results</a>
+      <a href="#status">Status</a>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- ============================================================ HERO -->
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">MEC106A · Lab 5 · Final Engineering Report</p>
+    <h1>Vision-Guided Pick and Place<br/>with a UR7e Robot Arm</h1>
+    <p class="lede">
+      A closed-loop robotic system that detects food objects on a table with a
+      wrist-mounted Intel RealSense camera, reconstructs their 3D positions in
+      the robot's base frame, and executes MoveIt&nbsp;2-planned grasps that
+      deposit each object onto a detected plate.
+    </p>
+    <div class="hero-cta">
+      <a href="#architecture" class="btn btn-primary">Explore the architecture →</a>
+      <a href="#gallery" class="btn btn-ghost">See it in action</a>
+    </div>
+    <div class="hero-meta">
+      <span>Authors: Nathaniel Chan &amp; Nathan</span>
+      <span aria-hidden="true">·</span>
+      <span>UC Berkeley · MEC106A</span>
+    </div>
+  </div>
+
+  <!-- Rotating carousel -->
+  <figure class="hero-figure carousel" aria-roledescription="carousel" aria-label="Segmentation results from the orbit inspection">
+    <div class="carousel-track" id="carouselTrack">
+      <div class="carousel-slide is-active">
+        <img src="assets/seg_all_1.png" alt="All-class segmentation overlay, frame 1" />
+        <figcaption><span class="kbd">01</span> All-class overlay · orbit frame 1</figcaption>
+      </div>
+      <div class="carousel-slide">
+        <img src="assets/seg_all_15.png" alt="All-class segmentation overlay, frame 15" />
+        <figcaption><span class="kbd">02</span> All-class overlay · orbit frame 15</figcaption>
+      </div>
+      <div class="carousel-slide">
+        <img src="assets/seg_all_20.png" alt="All-class segmentation overlay, frame 20" />
+        <figcaption><span class="kbd">03</span> All-class overlay · orbit frame 20</figcaption>
+      </div>
+      <div class="carousel-slide">
+        <img src="assets/seg_apple_15.png" alt="SAM2 single-instance mask of the apple" />
+        <figcaption><span class="kbd">04</span> SAM2 single-instance mask</figcaption>
+      </div>
+    </div>
+    <button class="carousel-btn carousel-prev" aria-label="Previous slide">‹</button>
+    <button class="carousel-btn carousel-next" aria-label="Next slide">›</button>
+    <div class="carousel-dots" role="tablist" aria-label="Carousel pagination">
+      <button class="carousel-dot is-active" role="tab" aria-label="Slide 1" data-i="0"></button>
+      <button class="carousel-dot" role="tab" aria-label="Slide 2" data-i="1"></button>
+      <button class="carousel-dot" role="tab" aria-label="Slide 3" data-i="2"></button>
+      <button class="carousel-dot" role="tab" aria-label="Slide 4" data-i="3"></button>
+    </div>
+  </figure>
+</section>
+
+<!-- ============================================================ OVERVIEW -->
+<section id="overview" class="section">
+  <div class="section-head">
+    <h2><span class="num">1</span> System Overview</h2>
+    <p class="section-sub">
+      Two phases. An offline inspection orbit builds a multi-view dataset of the
+      scene; an online executor turns the resulting 6D positions into a sequence
+      of grasps. Each phase below is a brief — full technical content lives in
+      the interactive architecture diagram.
+    </p>
+  </div>
+
+  <div class="phase-grid">
+    <article class="phase-card">
+      <h3><span class="phase-num">01</span> Inspection</h3>
+      <p>
+        The arm orbits the plate in two rows of twenty waypoints, with the camera
+        permanently aimed at the centroid. Each waypoint saves an RGB capture and
+        the corresponding end-effector pose. When forty frames are written,
+        <code>/orbit_done</code> latches.
+      </p>
+      <p class="phase-foot">
+        <a href="#architecture" data-open-detail="armcircler">Open ArmCircler →</a>
+      </p>
+    </article>
+
+    <article class="phase-card">
+      <h3><span class="phase-num">02</span> Execution</h3>
+      <p>
+        The commander runs YOLO + SAM2 segmentation and multi-view triangulation
+        to produce <code>object_poses.npy</code>. The user presses Enter and
+        <code>UR7e_CubeGrasp</code> executes a seven-step grasp for each object,
+        returning home between picks.
+      </p>
+      <p class="phase-foot">
+        <a href="#architecture" data-open-detail="main">Open the executor →</a>
+      </p>
+    </article>
+  </div>
+
+  <ul class="kpi-row">
+    <li><strong>UR7e</strong><span>6-DoF arm</span></li>
+    <li><strong>YOLOv8 + SAM2</strong><span>Detection &amp; segmentation</span></li>
+    <li><strong>40 waypoints</strong><span>Orbit inspection</span></li>
+    <li><strong>Multi-view</strong><span>RANSAC triangulation</span></li>
+  </ul>
+</section>
+
+<!-- ============================================================ GALLERY (visual strip) -->
+<section id="gallery" class="section section-tint">
+  <div class="section-head">
+    <h2><span class="num">2</span> Captures from the Orbit</h2>
+    <p class="section-sub">
+      Snapshots from a 40-waypoint orbit around the plate. Each frame is paired
+      with the corresponding end-effector pose and fed downstream to YOLO + SAM2.
+    </p>
+  </div>
+
+  <div class="gallery">
+    <figure><img src="assets/captured_1.jpg"  alt="Orbit frame 1"><figcaption>Frame 1</figcaption></figure>
+    <figure><img src="assets/captured_10.jpg" alt="Orbit frame 10"><figcaption>Frame 10</figcaption></figure>
+    <figure><img src="assets/captured_15.jpg" alt="Orbit frame 15"><figcaption>Frame 15</figcaption></figure>
+    <figure><img src="assets/captured_20.jpg" alt="Orbit frame 20"><figcaption>Frame 20</figcaption></figure>
+    <figure><img src="assets/captured_25.jpg" alt="Orbit frame 25"><figcaption>Frame 25</figcaption></figure>
+    <figure><img src="assets/captured_30.jpg" alt="Orbit frame 30"><figcaption>Frame 30</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ ARCHITECTURE (interactive) -->
+<section id="architecture" class="section">
+  <div class="section-head">
+    <h2><span class="num">3</span> Architecture</h2>
+    <p class="section-sub">
+      The pipeline is split across two ROS&nbsp;2 packages — <code>perception</code>
+      and <code>planning</code> — with MoveIt&nbsp;2 providing IK and motion
+      planning. <strong>Click any component below</strong> to open its details.
+    </p>
+  </div>
+
+  <div class="diagram-wrap" aria-label="System architecture diagram. Click components for details.">
+    <svg viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ROS 2 architecture for vision-guided pick and place" class="arch-svg">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#63a2ff" />
+        </marker>
+        <marker id="arrow-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#c084fc" />
+        </marker>
+        <linearGradient id="g-perception" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="rgba(99, 162, 255, 0.18)"/>
+          <stop offset="1" stop-color="rgba(99, 162, 255, 0.06)"/>
+        </linearGradient>
+        <linearGradient id="g-planning" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="rgba(196, 132, 252, 0.20)"/>
+          <stop offset="1" stop-color="rgba(196, 132, 252, 0.06)"/>
+        </linearGradient>
+        <linearGradient id="g-hw" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="rgba(52, 211, 153, 0.18)"/>
+          <stop offset="1" stop-color="rgba(52, 211, 153, 0.06)"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Hardware column -->
+      <g class="arch-node" data-detail="camera" tabindex="0" role="button" aria-label="RealSense camera details">
+        <rect x="20" y="30" width="240" height="90" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
+        <text x="140" y="62" text-anchor="middle" class="diag-title">RealSense D-series</text>
+        <text x="140" y="84" text-anchor="middle" class="diag-sub">RGB · Depth · CameraInfo</text>
+        <text x="140" y="104" text-anchor="middle" class="diag-sub">/camera/color/* · /depth/color/points</text>
+      </g>
+
+      <g class="arch-node" data-detail="robot" tabindex="0" role="button" aria-label="UR7e arm and gripper details">
+        <rect x="20" y="440" width="240" height="80" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
+        <text x="140" y="472" text-anchor="middle" class="diag-title">UR7e Arm + Gripper</text>
+        <text x="140" y="494" text-anchor="middle" class="diag-sub">FollowJointTrajectory</text>
+        <text x="140" y="512" text-anchor="middle" class="diag-sub">/toggle_gripper</text>
+      </g>
+
+      <!-- Perception package -->
+      <g>
+        <rect x="320" y="20" width="320" height="200" rx="12" fill="url(#g-perception)" stroke="#63a2ff" stroke-opacity="0.7" />
+        <text x="480" y="46" text-anchor="middle" class="diag-pkg">perception</text>
+
+        <g class="arch-node" data-detail="detection" tabindex="0" role="button" aria-label="DetectionNode details">
+          <rect x="340" y="62" width="280" height="50" rx="8" fill="rgba(15, 22, 36, 0.6)" stroke="#63a2ff"/>
+          <text x="480" y="82" text-anchor="middle" class="diag-title">DetectionNode</text>
+          <text x="480" y="100" text-anchor="middle" class="diag-sub">YOLO → bbox → cloud centroid → TF</text>
+        </g>
+
+        <g class="arch-node" data-detail="yolo" tabindex="0" role="button" aria-label="YOLODetector details">
+          <rect x="340" y="122" width="135" height="42" rx="6" fill="rgba(15, 22, 36, 0.6)" stroke="#63a2ff"/>
+          <text x="407" y="148" text-anchor="middle" class="diag-sub">YOLODetector</text>
+        </g>
+
+        <g class="arch-node" data-detail="pixel" tabindex="0" role="button" aria-label="pixel_to_world details">
+          <rect x="485" y="122" width="135" height="42" rx="6" fill="rgba(15, 22, 36, 0.6)" stroke="#63a2ff"/>
+          <text x="552" y="148" text-anchor="middle" class="diag-sub">pixel_to_world</text>
+        </g>
+
+        <rect x="340" y="172" width="280" height="38" rx="6" fill="rgba(99, 162, 255, 0.06)" stroke="rgba(99, 162, 255, 0.35)"/>
+        <text x="480" y="195" text-anchor="middle" class="diag-sub">/detected_pick_point · /detected_class · /detected_plate_point</text>
+      </g>
+
+      <!-- Planning package -->
+      <g>
+        <rect x="700" y="20" width="380" height="430" rx="12" fill="url(#g-planning)" stroke="#c084fc" stroke-opacity="0.7" />
+        <text x="890" y="46" text-anchor="middle" class="diag-pkg">planning</text>
+
+        <g class="arch-node" data-detail="armcircler" tabindex="0" role="button" aria-label="ArmCircler details">
+          <rect x="720" y="62" width="340" height="62" rx="8" fill="rgba(15, 22, 36, 0.6)" stroke="#c084fc"/>
+          <text x="890" y="84" text-anchor="middle" class="diag-title">ArmCircler</text>
+          <text x="890" y="104" text-anchor="middle" class="diag-sub">2×20 orbit · saves captured_images/ + poses.npy</text>
+        </g>
+
+        <g class="arch-node" data-detail="commander" tabindex="0" role="button" aria-label="Commander details">
+          <rect x="720" y="138" width="340" height="78" rx="8" fill="rgba(15, 22, 36, 0.6)" stroke="#c084fc"/>
+          <text x="890" y="160" text-anchor="middle" class="diag-title">Commander (separate terminal)</text>
+          <text x="890" y="180" text-anchor="middle" class="diag-sub">segment_batch.py → 6D_poses/run.py</text>
+          <text x="890" y="198" text-anchor="middle" class="diag-sub">/start_pick_place · /set_target_class</text>
+        </g>
+
+        <g class="arch-node" data-detail="main" tabindex="0" role="button" aria-label="UR7e_CubeGrasp details">
+          <rect x="720" y="232" width="340" height="86" rx="8" fill="rgba(15, 22, 36, 0.6)" stroke="#c084fc"/>
+          <text x="890" y="254" text-anchor="middle" class="diag-title">UR7e_CubeGrasp (main.py)</text>
+          <text x="890" y="274" text-anchor="middle" class="diag-sub">busy semaphore · job queue</text>
+          <text x="890" y="292" text-anchor="middle" class="diag-sub">hover → descend → grip → lift → drop</text>
+          <text x="890" y="310" text-anchor="middle" class="diag-sub">PICK_OFFSETS per class</text>
+        </g>
+
+        <g class="arch-node" data-detail="ik" tabindex="0" role="button" aria-label="IKPlanner details">
+          <rect x="720" y="332" width="160" height="46" rx="6" fill="rgba(15, 22, 36, 0.6)" stroke="#c084fc"/>
+          <text x="800" y="358" text-anchor="middle" class="diag-sub">IKPlanner</text>
+        </g>
+
+        <g class="arch-node" data-detail="tf" tabindex="0" role="button" aria-label="static_tf_transform details">
+          <rect x="900" y="332" width="160" height="46" rx="6" fill="rgba(15, 22, 36, 0.6)" stroke="#c084fc"/>
+          <text x="980" y="358" text-anchor="middle" class="diag-sub">static_tf_transform</text>
+        </g>
+
+        <g class="arch-node" data-detail="moveit" tabindex="0" role="button" aria-label="MoveIt 2 details">
+          <rect x="720" y="390" width="340" height="46" rx="8" fill="rgba(196, 132, 252, 0.08)" stroke="rgba(196, 132, 252, 0.4)"/>
+          <text x="890" y="416" text-anchor="middle" class="diag-sub">MoveIt 2 · /compute_ik · /plan_kinematic_path</text>
+        </g>
+      </g>
+
+      <!-- Arrows -->
+      <line x1="260" y1="75"  x2="320" y2="85"  stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="640" y1="191" x2="720" y2="170" stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="640" y1="200" x2="720" y2="90"  stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="720" y1="412" x2="260" y2="478" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-d)"/>
+      <line x1="890" y1="216" x2="890" y2="232" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-d)"/>
+      <line x1="800" y1="378" x2="890" y2="390" stroke="#c084fc" stroke-width="1.5" marker-end="url(#arrow-d)"/>
+      <line x1="980" y1="378" x2="980" y2="540" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <line x1="980" y1="540" x2="260" y2="540" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-d)"/>
+      <text x="600" y="535" class="diag-sub">static TF: wrist_3_link → camera_link</text>
+    </svg>
+    <p class="diagram-hint">Tip — every white block is clickable. Use Tab + Enter for keyboard access.</p>
+  </div>
+
+  <!-- Detail panel: shows technical content for the clicked component -->
+  <div id="detailPanel" class="detail-panel" aria-live="polite">
+    <div class="detail-empty">
+      <p>Click a component above to read its details here.</p>
+    </div>
+
+    <!-- Hidden content blocks; revealed by JS -->
+    <template id="tpl-camera">
+      <header><span class="tag tag-hw">Hardware</span><h3>Intel RealSense D-series</h3></header>
+      <p>Wrist-mounted depth camera providing aligned RGB, depth, and intrinsics over the standard RealSense ROS 2 topics.</p>
+      <ul>
+        <li><code>/camera/.../color/image_raw</code> — RGB stream consumed by YOLO.</li>
+        <li><code>/camera/.../depth/color/points</code> — pointcloud reprojected into image coords for centroid lift.</li>
+        <li><code>/camera/.../color/camera_info</code> — intrinsics used by <code>pixel_to_world</code>.</li>
+      </ul>
+      <p class="callout-inline"><strong>Note —</strong> the camera launch is intentionally external to the bringup so we can restart it without tearing down the planner.</p>
+    </template>
+
+    <template id="tpl-robot">
+      <header><span class="tag tag-hw">Hardware</span><h3>UR7e Arm + Gripper</h3></header>
+      <p>6-DoF Universal Robots UR7e with a parallel gripper. The arm is driven through the <code>scaled_joint_trajectory_controller</code>'s FollowJointTrajectory action.</p>
+      <ul>
+        <li><strong>Home pose:</strong> <code>[4.723, -1.576, -2.161, -0.993, 1.580, -3.143]</code> rad.</li>
+        <li><strong>Gripper toggle:</strong> <code>/toggle_gripper</code> Trigger service. State assumed open at startup.</li>
+        <li><strong>Joint feedback:</strong> <code>/joint_states</code> seeds every IK call so the solver starts from the live configuration.</li>
+      </ul>
+    </template>
+
+    <template id="tpl-detection">
+      <header><span class="tag tag-perc">perception</span><h3>DetectionNode</h3></header>
+      <p>The main perception node. Runs YOLOv8 on every RGB frame, lifts each bbox into a 3D centroid through the depth pointcloud, and publishes the result in <code>base_link</code>.</p>
+      <ol class="steps-inline">
+        <li><strong>YOLO inference.</strong> <code>YOLODetector.detect()</code> returns class IDs, confidence, bbox, and 2D center.</li>
+        <li><strong>Depth lift.</strong> <code>get_centroid_from_cloud_bbox()</code> reprojects every cloud point into image coords, keeps the ones inside the bbox, and averages them.</li>
+        <li><strong>TF lift.</strong> <code>transform_point()</code> resolves <code>camera_link → base_link</code> via the static TF + UR kinematic chain.</li>
+        <li><strong>Plate gate.</strong> Any candidate within <code>plate_radius = 0.14 m</code> of the latest plate centroid is rejected.</li>
+        <li><strong>Publish.</strong> Highest-confidence survivor on <code>/detected_pick_point</code>; plate always published on <code>/detected_plate_point</code>.</li>
+      </ol>
+      <p><strong>Topic ordering matters —</strong> <code>/detected_class</code> must arrive before <code>/detected_pick_point</code>, otherwise per-class offsets silently fall back to defaults.</p>
+    </template>
+
+    <template id="tpl-yolo">
+      <header><span class="tag tag-perc">perception</span><h3>YOLODetector</h3></header>
+      <p>Thin stateless wrapper around Ultralytics YOLOv8. <code>detect(image)</code> returns a list of <code>{class_id, class_name, confidence, bbox, center}</code> dicts.</p>
+      <ul>
+        <li><strong>Weights:</strong> <code>updated.pt</code> (fine-tuned) is the default; <code>best.pt</code> and <code>yolov8n.pt</code> are kept as fallbacks.</li>
+        <li><strong>Threshold:</strong> <code>conf_threshold</code> parameter on <code>DetectionNode</code> (default 0.5).</li>
+        <li>No state, no temporal smoothing — every frame is independent.</li>
+      </ul>
+    </template>
+
+    <template id="tpl-pixel">
+      <header><span class="tag tag-perc">perception</span><h3>pixel_to_world</h3></header>
+      <p>Helper module that converts 2D detections into 3D centroids in <code>base_link</code>.</p>
+      <ul>
+        <li><code>get_centroid_from_cloud_bbox()</code> — projects every depth point into camera image coords, averages the ones inside the YOLO bbox.</li>
+        <li><code>transform_point()</code> — TF lookup chained from <code>camera_link</code> through the static TF and the UR kinematic chain.</li>
+        <li>Returns a <code>PointStamped</code> in <code>base_link</code>, ready for IK.</li>
+      </ul>
+    </template>
+
+    <template id="tpl-armcircler">
+      <header><span class="tag tag-plan">planning</span><h3>ArmCircler — orbit inspection</h3></header>
+      <p>Pre-inspection node that orbits the arm in 2 rows × 20 waypoints around the plate centroid, capturing an RGB frame and an end-effector pose at each waypoint.</p>
+      <ul>
+        <li><strong>Look-at orientation:</strong> <code>rot_z · rot_y · rot_x</code> always points the camera at the plate.</li>
+        <li><strong>Heights:</strong> row 1 at 0.30 m, row 2 reversed at 0.20 m.</li>
+        <li><strong>Outputs:</strong> <code>captured_images_2/</code> JPGs + <code>poses.npy</code> (<code>[x,y,z,qx,qy,qz,qw]</code>).</li>
+        <li><strong>Finish signal:</strong> publishes <code>/orbit_done</code> on a TRANSIENT_LOCAL topic so the commander picks it up even if it starts late.</li>
+      </ul>
+      <p class="callout-inline"><strong>Why orbit?</strong> Single-frame depth centroids degrade near the edge of the camera frame. Forty views give the offline pipeline enough parallax for stable triangulation.</p>
+    </template>
+
+    <template id="tpl-commander">
+      <header><span class="tag tag-plan">planning</span><h3>Commander &amp; offline 6D pipeline</h3></header>
+      <p>Runs in a separate terminal so stdin works. On <code>/orbit_done</code> it kicks off two subprocesses through the sam2 venv, then prompts the user.</p>
+      <ol class="steps-inline">
+        <li><strong>segment_batch.py</strong> — YOLO + SAM2 over all captured frames → <code>segmented/&lt;stem&gt;/&lt;stem&gt;_&lt;class&gt;_&lt;i&gt;_mask.png</code>.</li>
+        <li><strong>6D_poses/run.py</strong> — per-view centroid (mask area → apparent-size depth), then <code>triangulate_ransac</code> + weighted DLT across views.</li>
+        <li><strong>Output:</strong> <code>results/object_poses.npy</code> with one <code>position_base_link_m</code> per object.</li>
+        <li><strong>Activation:</strong> Enter → <code>/start_pick_place</code> (Bool). Subsequent inputs → <code>/set_target_class</code> (String).</li>
+      </ol>
+      <p><strong>Position-only mode:</strong> depth is estimated from apparent mask radius (<code>z = f<sub>x</sub> · (d/2) / r<sub>px</sub></code>) — no DINOv2, no STL rendering. Fast and CAD-free.</p>
+    </template>
+
+    <template id="tpl-main">
+      <header><span class="tag tag-plan">planning</span><h3>UR7e_CubeGrasp — pick-and-place state machine</h3></header>
+      <p>Owns the <code>busy</code> semaphore, the <code>job_queue</code>, and the seven-step grasp. Every motion is an async trajectory; every gripper toggle is a synchronous service call.</p>
+      <ol class="steps-inline">
+        <li><strong>Home</strong> — idle observation pose; gripper open.</li>
+        <li><strong>Pre-pregrasp</strong> — IK at <code>(cx, cy, cz + 0.5)</code> for a centered camera view.</li>
+        <li><strong>Refine</strong> — second detection at the centered view rebuilds the queue using full <code>PICK_OFFSETS</code>.</li>
+        <li><strong>Hover → descend → grip → lift</strong> — chained IK using the previous solution as seed (no elbow flips).</li>
+        <li><strong>Over plate → lower → release</strong> — translate to <code>(plate_x, plate_y, drop_z + 0.20)</code>, descend, toggle gripper.</li>
+        <li><strong>Return home</strong> — <code>_going_home</code> sentinel clears <code>busy</code> when the arm settles.</li>
+      </ol>
+      <div class="mini-table">
+        <table>
+          <thead><tr><th>Class</th><th>x</th><th>y</th><th>pre_grasp_z</th><th>grasp_z</th><th>lift_z</th></tr></thead>
+          <tbody>
+            <tr><td>apple</td><td>0.01</td><td>0.005</td><td>0.16</td><td>0.125</td><td>0.185</td></tr>
+            <tr><td>tomato</td><td>0.015</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
+            <tr><td>cake</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.15</td><td>0.20</td></tr>
+            <tr><td>strawberry</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.14</td><td>0.20</td></tr>
+            <tr><td><em>default</em></td><td>0.02</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <template id="tpl-ik">
+      <header><span class="tag tag-plan">planning</span><h3>IKPlanner</h3></header>
+      <p>Wraps the two MoveIt services we actually need.</p>
+      <ul>
+        <li><code>/compute_ik</code> — Cartesian target → joint solution. Seeded with the previous step's joints, not the live arm pose, to keep the solver in a locally consistent region.</li>
+        <li><code>/plan_kinematic_path</code> — RRTConnect plan between joint configurations.</li>
+        <li><strong>Default orientation</strong> is <code>qy = 1</code> (gripper straight down).</li>
+      </ul>
+    </template>
+
+    <template id="tpl-tf">
+      <header><span class="tag tag-plan">planning</span><h3>static_tf_transform</h3></header>
+      <p>Broadcasts the constant <code>wrist_3_link → camera_link</code> transform as a hard-coded 4×4 matrix <code>G</code>.</p>
+      <p>This is the bridge between the depth point cloud and the kinematic chain. Without it, YOLO can locate objects in the camera frame but the arm has no way to plan to them.</p>
+    </template>
+
+    <template id="tpl-moveit">
+      <header><span class="tag tag-plan">external</span><h3>MoveIt 2</h3></header>
+      <p>Provides the two services the executor depends on:</p>
+      <ul>
+        <li><code>/compute_ik</code> — used at every Cartesian waypoint.</li>
+        <li><code>/plan_kinematic_path</code> — RRTConnect plans between joint configurations, executed through <code>FollowJointTrajectory</code>.</li>
+      </ul>
+      <p>RViz is launched alongside it for live visual debugging of trajectories.</p>
+    </template>
+  </div>
+</section>
+
+<!-- ============================================================ RESULTS -->
+<section id="results" class="section section-tint">
+  <div class="section-head">
+    <h2><span class="num">4</span> Results &amp; Pose Reconstruction</h2>
+    <p class="section-sub">
+      Reconstructed object centroids in <code>base_link</code> from multi-view
+      triangulation, plus the SAM2 mask debug strip used to verify
+      segmentation quality before triangulation.
+    </p>
+  </div>
+
+  <div class="two-col">
+    <figure class="figure">
+      <img src="assets/scene_poses.png" alt="3D scene plot of estimated object positions." />
+      <figcaption>Reconstructed object centroids in <code>base_link</code>.</figcaption>
+    </figure>
+    <figure class="figure">
+      <img src="assets/masks_debug.png" alt="Per-view mask debug visualization." />
+      <figcaption>Per-view SAM2 mask debug strip across the orbit.</figcaption>
+    </figure>
+  </div>
+
+  <div class="placeholder-grid">
+    <div class="placeholder">
+      <span class="ph-tag">VIDEO</span>
+      <p>End-to-end demo run (orbit → segmentation → pick sequence). To be embedded once the placement stage is locked.</p>
+    </div>
+    <div class="placeholder">
+      <span class="ph-tag">PHOTO</span>
+      <p>Hero shot of the final robot setup with all detected objects placed on the plate.</p>
+    </div>
+    <div class="placeholder">
+      <span class="ph-tag">METRICS</span>
+      <p>Pick success rate per class · mean grasp time · placement error vs. plate centroid.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ STATUS -->
+<section id="status" class="section">
+  <div class="section-head">
+    <h2><span class="num">5</span> Status &amp; What's Next</h2>
+    <p class="section-sub">
+      Perception and orbit inspection are stable, the offline 6D pipeline runs
+      end-to-end, and pick execution works on rigid objects. Placement on the
+      plate is the next milestone.
+    </p>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-card good">
+      <h3>Working</h3>
+      <ul>
+        <li>Live YOLOv8 detection + plate-radius exclusion</li>
+        <li>40-waypoint orbit with synchronized pose logging</li>
+        <li>SAM2 batch segmentation across all captures</li>
+        <li>Multi-view RANSAC triangulation in <code>base_link</code></li>
+        <li>Async MoveIt-planned pick sequence with refinement</li>
+      </ul>
+    </div>
+
+    <div class="status-card todo">
+      <h3>In progress</h3>
+      <ul>
+        <li>Wire <code>position_base_link_m</code> into <code>main.py</code>.</li>
+        <li>Per-object drop spots around the plate centroid.</li>
+        <li>Pick ordering by distance / class priority.</li>
+      </ul>
+    </div>
+
+    <div class="status-card risk">
+      <h3>Known issues</h3>
+      <ul>
+        <li>Drop-waypoint IK failures not yet checked before enqueue.</li>
+        <li>Gripper state silently drifts if it starts closed.</li>
+        <li>Refined detection waits indefinitely if the object disappears.</li>
+        <li><code>colcon build</code> copies (not symlinks) Python files.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ FOOTER -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div>
+      <strong>MEC106A — Lab 5 · Vision-Guided Pick and Place</strong>
+      <p>UC Berkeley · Spring 2026 · Authors: Nathaniel Chan &amp; Nathan</p>
+    </div>
+    <div class="footer-links">
+      <a href="#top">↑ Back to top</a>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
