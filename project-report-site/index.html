@@ -24,7 +24,7 @@
   <div class="topbar-inner">
     <a class="brand" href="#top">
       <span class="brand-mark"></span>
-      <span class="brand-text">UR7e&nbsp;Vision&nbsp;Pick &amp; Place</span>
+      <span class="brand-text">UR7e&nbsp;Vision&nbsp;Pick &amp; Place: Culinary Bot</span>
     </a>
     <nav class="nav">
       <a href="#overview">Overview</a>
@@ -42,7 +42,7 @@
 <section class="hero">
   <div class="hero-text">
     <p class="eyebrow">ME C106A · Final Engineering Report</p>
-    <h1>Vision-Guided Pick and Place<br/>with a UR7e Robot Arm</h1>
+    <h1>Vision-Guided Pick and Place with a UR7e Robot Arm: "Culinary Bot"</h1>
     <p class="lede">
       A closed-loop robotic system that detects food objects on a table with a
       wrist-mounted Intel RealSense camera, reconstructs their 3D positions in
@@ -55,7 +55,6 @@
     </div>
     <div class="hero-meta">
       <span>Authors: Nathaniel Chan &comma; Nathan Lam &comma; Christopher-Michael Garcia &comma; Alan Tran &comma; &amp; William Ou</span>
-      <span aria-hidden="true">·</span>
       <span>UC Berkeley · ME C106A</span>
     </div>
   </div>
@@ -140,6 +139,7 @@
 </section>
 
 <!-- ============================================================ GALLERY (visual strip) -->
+<!-- DELETE SECTION, INSTEAD INTEGRATE INTO ARCHITECTURE-->
 <section id="gallery" class="section section-tint">
   <div class="section-head">
     <h2><span class="num">2</span> Captures from the Orbit</h2>
@@ -173,12 +173,16 @@
   <div class="diagram-wrap" aria-label="System architecture diagram. Click components for details.">
     <svg viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ROS 2 architecture for vision-guided pick and place" class="arch-svg">
       <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <marker id="arrow-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="#63a2ff" />
         </marker>
-        <marker id="arrow-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <marker id="arrow-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="#c084fc" />
         </marker>
+        <marker id="arrow-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#34d399" />
+        </marker>
+
         <linearGradient id="g-perception" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="rgba(99, 162, 255, 0.18)"/>
           <stop offset="1" stop-color="rgba(99, 162, 255, 0.06)"/>
@@ -195,14 +199,22 @@
 
       <!-- Hardware column -->
       <g class="arch-node" data-detail="camera" tabindex="0" role="button" aria-label="RealSense camera details">
-        <rect x="20" y="30" width="240" height="90" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
+        <rect x="20" y="30" width="240" height="100" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
         <text x="140" y="62" text-anchor="middle" class="diag-title">RealSense D-series</text>
         <text x="140" y="84" text-anchor="middle" class="diag-sub">RGB · Depth · CameraInfo</text>
         <text x="140" y="104" text-anchor="middle" class="diag-sub">/camera/color/* · /depth/color/points</text>
       </g>
+      
+      <!-- YOLO model block -->
+      <g class="arch-node" data-detail="yolo-model" tabindex="0" role="button" aria-label="YOLO model details">
+        <rect x="20" y="240" width="240" height="100" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
+        <text x="140" y="272" text-anchor="middle" class="diag-title">Custom YOLO Model</text>
+        <text x="140" y="296" text-anchor="middle" class="diag-sub">Real-time object detection</text>
+        <text x="140" y="318" text-anchor="middle" class="diag-sub">Bounding box + class output</text>
+      </g>
 
       <g class="arch-node" data-detail="robot" tabindex="0" role="button" aria-label="UR7e arm and gripper details">
-        <rect x="20" y="440" width="240" height="80" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
+        <rect x="20" y="440" width="240" height="90" rx="10" fill="url(#g-hw)" stroke="#34d399" stroke-opacity="0.7" />
         <text x="140" y="472" text-anchor="middle" class="diag-title">UR7e Arm + Gripper</text>
         <text x="140" y="494" text-anchor="middle" class="diag-sub">FollowJointTrajectory</text>
         <text x="140" y="512" text-anchor="middle" class="diag-sub">/toggle_gripper</text>
@@ -210,7 +222,7 @@
 
       <!-- Perception package -->
       <g>
-        <rect x="320" y="20" width="320" height="200" rx="12" fill="url(#g-perception)" stroke="#63a2ff" stroke-opacity="0.7" />
+        <rect x="320" y="20" width="320" height="230" rx="12" fill="url(#g-perception)" stroke="#63a2ff" stroke-opacity="0.7" />
         <text x="480" y="46" text-anchor="middle" class="diag-pkg">perception</text>
 
         <g class="arch-node" data-detail="detection" tabindex="0" role="button" aria-label="DetectionNode details">
@@ -229,8 +241,9 @@
           <text x="552" y="148" text-anchor="middle" class="diag-sub">pixel_to_world</text>
         </g>
 
-        <rect x="340" y="172" width="280" height="38" rx="6" fill="rgba(99, 162, 255, 0.06)" stroke="rgba(99, 162, 255, 0.35)"/>
-        <text x="480" y="195" text-anchor="middle" class="diag-sub">/detected_pick_point · /detected_class · /detected_plate_point</text>
+        <rect x="340" y="172" width="280" height="60" rx="6" fill="rgba(99, 162, 255, 0.06)" stroke="rgba(99, 162, 255, 0.35)"/>
+        <text x="480" y="195" text-anchor="middle" class="diag-sub">/detected_pick_point · /detected_class</text>
+        <text x="480" y="215" text-anchor="middle" class="diag-sub">· /detected_plate_point</text>
       </g>
 
       <!-- Planning package -->
@@ -276,17 +289,23 @@
       </g>
 
       <!-- Arrows -->
-      <line x1="260" y1="75"  x2="320" y2="85"  stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
-      <line x1="640" y1="191" x2="720" y2="170" stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
-      <line x1="640" y1="200" x2="720" y2="90"  stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow)"/>
-      <line x1="720" y1="412" x2="260" y2="478" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-d)"/>
-      <line x1="890" y1="216" x2="890" y2="232" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-d)"/>
-      <line x1="800" y1="378" x2="890" y2="390" stroke="#c084fc" stroke-width="1.5" marker-end="url(#arrow-d)"/>
-      <line x1="980" y1="378" x2="980" y2="540" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4"/>
-      <line x1="980" y1="540" x2="260" y2="540" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-d)"/>
-      <text x="600" y="535" class="diag-sub">static TF: wrist_3_link → camera_link</text>
+      <line x1="260" y1="75"  x2="320" y2="85"  stroke="#34d399" stroke-width="2" marker-end="url(#arrow-g)"/>
+      <line x1="260" y1="285" x2="320" y2="140"stroke="#34d399" stroke-width="2"marker-end="url(#arrow-g)"/>
+      <line x1="260" y1="295" x2="700" y2="255"stroke="#34d399" stroke-width="2"marker-end="url(#arrow-g)"/>
+
+      <line x1="640" y1="191" x2="720" y2="170" stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow-b)"/>
+      <line x1="640" y1="200" x2="720" y2="90"  stroke="#63a2ff" stroke-width="2" marker-end="url(#arrow-b)"/>
+
+      <line x1="720" y1="412" x2="260" y2="478" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-p)"/>
+      <line x1="890" y1="216" x2="890" y2="232" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-p)"/>
+      <line x1="800" y1="378" x2="890" y2="390" stroke="#c084fc" stroke-width="1.5" marker-end="url(#arrow-p)"/>
+
+      <line x1="980" y1="378" x2="980" y2="500" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <line x1="980" y1="500" x2="260" y2="500" stroke="#c084fc" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-d)"/>
+      <text x="600" y="495" class="diag-sub">static TF: wrist_3_link → camera_link</text>
+
     </svg>
-    <p class="diagram-hint">Tip — every white block is clickable. Use Tab + Enter for keyboard access.</p>
+    <!-- <p class="diagram-hint">Tip: every block is clickable.</p> We don't need this, no point.-->
   </div>
 
   <!-- Detail panel: shows technical content for the clicked component -->
@@ -306,6 +325,20 @@
       </ul>
       <p class="callout-inline"><strong>Note —</strong> the camera launch is intentionally external to the bringup so we can restart it without tearing down the planner.</p>
     </template>
+
+<template id="tpl-yolo-model">
+  <header><span class="tag tag-perc">perception</span><h3>Custom-Trained YOLO Model</h3></header>
+  <p>A custom YOLO model was trained on images of 3D-printed food replicas for real-time object detection within the workspace. Done separately from the main architecture.</p>
+  <ul>
+    <li><strong>Dataset:</strong> Approximately 800 labeled images created using <code>Label Studio</code>.</li>
+    <li><strong>Training diversity:</strong> Images were collected under varying conditions including different heights, viewing angles, lighting conditions, object distances, partial occlusions, and proximity to similarly-colored objects.</li>
+    <li><strong>Iterative training:</strong> The model was retrained in batches of roughly 50 new images at a time, typically for around 50 epochs after each dataset expansion.</li>
+    <li><strong>Assisted labeling:</strong> Once the dataset reached roughly 500 images, the partially-trained model was used to generate predicted labels to accelerate annotation and dataset growth.</li>
+    <li><strong>Final training:</strong> The completed dataset was used for a final full training pass of approximately 50 epochs.</li>
+    <li><strong>Weights:</strong> <code>updated.pt</code> (fine-tuned) is the primary model; previous models are retained as fallback checkpoints.</li>
+    <p class="callout-inline"><strong>Note —</strong> food wasn't allowed in the lab; existing YOLO models trained on real food couldn't be utilized, requiring us to train one ourselves.</p>
+  </ul>
+</template>
 
     <template id="tpl-robot">
       <header><span class="tag tag-hw">Hardware</span><h3>UR7e Arm + Gripper</h3></header>
@@ -329,6 +362,7 @@
       </ol>
       <p><strong>Topic ordering matters —</strong> <code>/detected_class</code> must arrive before <code>/detected_pick_point</code>, otherwise per-class offsets silently fall back to defaults.</p>
     </template>
+  
 
     <template id="tpl-yolo">
       <header><span class="tag tag-perc">perception</span><h3>YOLODetector</h3></header>
@@ -351,13 +385,20 @@
     </template>
 
     <template id="tpl-armcircler">
-      <header><span class="tag tag-plan">planning</span><h3>ArmCircler — orbit inspection</h3></header>
-      <p>Pre-inspection node that orbits the arm in 2 rows × 20 waypoints around the plate centroid, capturing an RGB frame and an end-effector pose at each waypoint.</p>
+      <header><span class="tag tag-plan">planning</span><h3>ArmCircler — Orbit Inspection</h3></header>
+      <p>The ArmCircler node is responsible for executing a sequence of joint trajectories using an action client and taking pictures at each waypoint. It uses the <code>FollowJointTrajectory</code> action type, which handles trajectory goals, feedback, and results.</p>
+      <ol class="steps-inline">
+        <li><strong>Plate detection:</strong> Uses YOLO to find the plate and extracts the bounding box centerpoint as the reference point for trajectory planning.</li>
+        <li><strong>Waypoint generation:</strong> Two nested for loops generate waypoints at two height levels—each tracing an arc around the plate—plus one point above facing down.</li>
+        <li><strong>Pose storage:</strong> Stores the position and quaternion of each waypoint in <code>poses.npy</code> (<code>[x,y,z,qx,qy,qz,qw]</code>).</li>
+        <li><strong>IK solving:</strong> Uses the IK planner from Lab 5 to compute joint angles for each waypoint and places them in the job queue.</li>
+        <li><strong>Trajectory execution:</strong> Executes trajectories one-by-one, taking an RGB picture with the RealSense camera at each waypoint. Images stored in <code>captured_images/</code>.</li>
+        <li><strong>Completion signal:</strong> Sends a <code>True</code> boolean value to the commander node to signify orbit completion.</li>
+      </ol>
       <ul>
         <li><strong>Look-at orientation:</strong> <code>rot_z · rot_y · rot_x</code> always points the camera at the plate.</li>
         <li><strong>Heights:</strong> row 1 at 0.30 m, row 2 reversed at 0.20 m.</li>
-        <li><strong>Outputs:</strong> <code>captured_images_2/</code> JPGs + <code>poses.npy</code> (<code>[x,y,z,qx,qy,qz,qw]</code>).</li>
-        <li><strong>Finish signal:</strong> publishes <code>/orbit_done</code> on a TRANSIENT_LOCAL topic so the commander picks it up even if it starts late.</li>
+        <li><strong>Total waypoints:</strong> 2 rows × 20 waypoints = 40 frames.</li>
       </ul>
       <p class="callout-inline"><strong>Why orbit?</strong> Single-frame depth centroids degrade near the edge of the camera frame. Forty views give the offline pipeline enough parallax for stable triangulation.</p>
     </template>
@@ -374,30 +415,50 @@
       <p><strong>Position-only mode:</strong> depth is estimated from apparent mask radius (<code>z = f<sub>x</sub> · (d/2) / r<sub>px</sub></code>) — no DINOv2, no STL rendering. Fast and CAD-free.</p>
     </template>
 
-    <template id="tpl-main">
-      <header><span class="tag tag-plan">planning</span><h3>UR7e_CubeGrasp — pick-and-place state machine</h3></header>
-      <p>Owns the <code>busy</code> semaphore, the <code>job_queue</code>, and the seven-step grasp. Every motion is an async trajectory; every gripper toggle is a synchronous service call.</p>
-      <ol class="steps-inline">
-        <li><strong>Home</strong> — idle observation pose; gripper open.</li>
-        <li><strong>Pre-pregrasp</strong> — IK at <code>(cx, cy, cz + 0.5)</code> for a centered camera view.</li>
-        <li><strong>Refine</strong> — second detection at the centered view rebuilds the queue using full <code>PICK_OFFSETS</code>.</li>
-        <li><strong>Hover → descend → grip → lift</strong> — chained IK using the previous solution as seed (no elbow flips).</li>
-        <li><strong>Over plate → lower → release</strong> — translate to <code>(plate_x, plate_y, drop_z + 0.20)</code>, descend, toggle gripper.</li>
-        <li><strong>Return home</strong> — <code>_going_home</code> sentinel clears <code>busy</code> when the arm settles.</li>
-      </ol>
-      <div class="mini-table">
-        <table>
-          <thead><tr><th>Class</th><th>x</th><th>y</th><th>pre_grasp_z</th><th>grasp_z</th><th>lift_z</th></tr></thead>
-          <tbody>
-            <tr><td>apple</td><td>0.01</td><td>0.005</td><td>0.16</td><td>0.125</td><td>0.185</td></tr>
-            <tr><td>tomato</td><td>0.015</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
-            <tr><td>cake</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.15</td><td>0.20</td></tr>
-            <tr><td>strawberry</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.14</td><td>0.20</td></tr>
-            <tr><td><em>default</em></td><td>0.02</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </template>
+<template id="tpl-main">
+  <header><span class="tag tag-plan">planning</span><h3>UR7e_CubeGrasp — Pick-and-Place State Machine</h3></header>
+  <p>The pick-and-place pipeline is organized as a state machine that manages the <code>busy</code> semaphore, the <code>job_queue</code>, and the full grasp sequence. Every arm motion is executed asynchronously through trajectory actions, while gripper commands are handled synchronously through service calls.</p>
+  <p>All operations begin from the observation frame. After every pick and place cycle, the arm returns to this pose so the camera can view the entire workspace and recalculate object positions. Re-observing the workspace prevents error buildup that would occur if the arm relied only on predetermined coordinates.</p>
+  <ol class="steps-inline">
+    <li><strong>Home</strong> — observation frame (idle pose); gripper open. Camera has a full view of the workspace for object detection and position recalculation.</li>
+    <li><strong>Pre-pregrasp</strong> — IK solution generated at <code>(cx, cy, cz + 0.5)</code> so the camera can observe the object from a centered viewpoint, reducing fisheye distortion.</li>
+    <li><strong>Refine</strong> — a second detection pass recalculates the centroid from the centered viewpoint. This improves consistency when objects are partially visible and rebuilds the queue using the full <code>PICK_OFFSETS</code> configuration for the detected object class.</li>
+    <li><strong>Hover → descend → grip → lift</strong> — chained IK solutions reuse the previous joint solution as the seed to avoid discontinuities such as elbow flips. Hardcoded offsets compensate for object height and form factor differences between fruits.</li>
+    <li><strong>Over plate → lower → release</strong> — translate to <code>(plate_x, plate_y, drop_z + 0.20)</code>, descend using hardcoded <code>z</code> and <code>y</code> offsets, release the object, and retract upward. The z-offset compensates for imperfect table-depth estimation and gripper height, while the y-offset improves lateral placement alignment.</li>
+    <li><strong>Return home</strong> — <code>_going_home</code> clears <code>busy</code> once the arm settles at the observation frame, allowing the next pick cycle to begin safely.</li>
+  </ol>
+
+  <div class="mini-table">
+    <table>
+      <thead><tr><th>Class</th><th>x</th><th>y</th><th>pre_grasp_z</th><th>grasp_z</th><th>lift_z</th></tr></thead>
+      <tbody>
+        <tr><td>apple</td><td>0.01</td><td>0.005</td><td>0.16</td><td>0.125</td><td>0.185</td></tr>
+        <tr><td>tomato</td><td>0.015</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
+        <tr><td>cake</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.15</td><td>0.20</td></tr>
+        <tr><td>strawberry</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.14</td><td>0.20</td></tr>
+        <tr><td><em>default</em></td><td>0.02</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>State Management Flags</h4>
+  <p>The pipeline uses boolean state flags to coordinate perception, trajectory execution, and grasp planning. These flags prevent overlapping commands and ensure the robot only reacts to detections when it is in a safe observation state.</p>
+  <div class="mini-table">
+    <table>
+      <thead><tr><th>Flag</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>busy</code></td><td>Indicates that the arm is currently moving or an active pick cycle is running. New detections are ignored until the arm returns home or a trajectory failure occurs.</td></tr>
+        <tr><td><code>_refining</code></td><td>Enabled while the arm moves toward the pre-pregrasp pose. During this phase, live detections are temporarily suppressed until refined centroid estimation is completed.</td></tr>
+        <tr><td><code>_at_pre_pregrasp</code></td><td>Signals that the arm has reached the pre-pregrasp waypoint and that refined centroid detection should begin.</td></tr>
+        <tr><td><code>_going_home</code></td><td>Indicates that the home waypoint is currently queued or the arm is actively returning to the observation frame.</td></tr>
+        <tr><td><code>pick_place_enabled</code></td><td>Enables the full pick-and-place pipeline after activation from the commander node.</td></tr>
+        <tr><td><code>_pick_triggered</code></td><td>Prevents duplicate pick attempts by ensuring only one live detection can trigger a pick operation at a time.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="callout-inline"><strong>Refined centroid calculation:</strong> Recalculating the centroid from 0.5 m above the object produces more stable measurements by reducing fisheye distortion and handling partially visible objects. The <code>PICK_OFFSETS</code> per-class adjustments can then be applied consistently across all pick cycles.</p>
+</template>
 
     <template id="tpl-ik">
       <header><span class="tag tag-plan">planning</span><h3>IKPlanner</h3></header>
@@ -508,6 +569,17 @@
     </div>
   </div>
 </section>
+
+<!-- ============================================================ AI Disclosure -->
+<section id="status" class="section">
+  <div class="section-head">
+    <h2><span class="num">6</span> AI Use Disclosure</h2>
+    <p class="section-sub">
+      Throughout the project creation process, ChatGPT, Gemini, and Claude Code were used. The usage of AI includes:
+
+
+    </p>
+  </div>
 
 <!-- ============================================================ FOOTER -->
 <footer class="footer">
