@@ -63,16 +63,8 @@ class Commander(Node):
             self._plate_pos = (msg.point.x, msg.point.y, msg.point.z)
 
     def _sorted_tasks(self):
-        """Return pose results sorted by XY distance to plate (ascending), then Z (ascending)."""
-        if not self._plate_pos:
-            self.get_logger().warning("[Commander] No plate position — task order will be arbitrary.")
-            return self._pose_results
-        px, py, _ = self._plate_pos
-        def _key(r):
-            pos = r['position_base_link_m']
-            xy_dist = ((float(pos[0]) - px) ** 2 + (float(pos[1]) - py) ** 2) ** 0.5
-            return (xy_dist, float(pos[2]))
-        return sorted(self._pose_results, key=_key)
+        """Return pose results sorted by Z height ascending (lowest object first)."""
+        return sorted(self._pose_results, key=lambda r: float(r['position_base_link_m'][2]))
 
     # ── orbit signal ──────────────────────────────────────────────────────────
 
