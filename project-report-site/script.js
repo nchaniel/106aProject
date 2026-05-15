@@ -77,53 +77,56 @@ if ('IntersectionObserver' in window && sections.length) {
 /* =========================================================
    Hero carousel
    ========================================================= */
-(function initCarousel() {
-  const track = document.getElementById('carouselTrack');
-  if (!track) return;
-  const slides = Array.from(track.querySelectorAll('.carousel-slide'));
-  const dots = Array.from(document.querySelectorAll('.carousel-dot'));
-  const prev = document.querySelector('.carousel-prev');
-  const next = document.querySelector('.carousel-next');
-  let i = 0;
-  let timer = null;
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+(function initCarousels() {
+  const allTracks = document.querySelectorAll('.carousel-track');
+  if (!allTracks.length) return;
 
-  const go = (n) => {
-    i = (n + slides.length) % slides.length;
-    slides.forEach((s, k) => s.classList.toggle('is-active', k === i));
-    dots.forEach((d, k) => d.classList.toggle('is-active', k === i));
-  };
+  allTracks.forEach(track => {
+    const slides = Array.from(track.querySelectorAll('.carousel-slide'));
+    const carousel = track.closest('.carousel');
+    const dots = Array.from(carousel.querySelectorAll('.carousel-dot'));
+    const prev = carousel.querySelector('.carousel-prev');
+    const next = carousel.querySelector('.carousel-next');
+    let i = 0;
+    let timer = null;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const advance = () => go(i + 1);
+    const go = (n) => {
+      i = (n + slides.length) % slides.length;
+      slides.forEach((s, k) => s.classList.toggle('is-active', k === i));
+      dots.forEach((d, k) => d.classList.toggle('is-active', k === i));
+    };
 
-  const start = () => {
-    if (reducedMotion) return;
-    stop();
-    timer = setInterval(advance, 4500);
-  };
-  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const advance = () => go(i + 1);
 
-  prev?.addEventListener('click', () => { go(i - 1); start(); });
-  next?.addEventListener('click', () => { go(i + 1); start(); });
-  dots.forEach((d) => d.addEventListener('click', () => {
-    go(parseInt(d.dataset.i, 10));
+    const start = () => {
+      if (reducedMotion) return;
+      stop();
+      timer = setInterval(advance, 4500);
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+
+    prev?.addEventListener('click', () => { go(i - 1); start(); });
+    next?.addEventListener('click', () => { go(i + 1); start(); });
+    dots.forEach((d) => d.addEventListener('click', () => {
+      go(parseInt(d.dataset.i, 10));
+      start();
+    }));
+
+    // Pause on hover/focus
+    carousel?.addEventListener('mouseenter', stop);
+    carousel?.addEventListener('mouseleave', start);
+    carousel?.addEventListener('focusin', stop);
+    carousel?.addEventListener('focusout', start);
+
+    // Keyboard arrows while focused on carousel
+    carousel?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft')  { go(i - 1); start(); }
+      if (e.key === 'ArrowRight') { go(i + 1); start(); }
+    });
+
     start();
-  }));
-
-  // Pause on hover/focus
-  const carousel = track.closest('.carousel');
-  carousel?.addEventListener('mouseenter', stop);
-  carousel?.addEventListener('mouseleave', start);
-  carousel?.addEventListener('focusin', stop);
-  carousel?.addEventListener('focusout', start);
-
-  // Keyboard arrows while focused on carousel
-  carousel?.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft')  { go(i - 1); start(); }
-    if (e.key === 'ArrowRight') { go(i + 1); start(); }
   });
-
-  start();
 })();
 
 /* =========================================================

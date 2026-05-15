@@ -139,7 +139,7 @@
 </section>
 
 <!-- ============================================================ GALLERY (visual strip) -->
-<!-- DELETE SECTION, INSTEAD INTEGRATE INTO ARCHITECTURE-->
+<!-- DELETE SECTION, INSTEAD INTEGRATE INTO ARCHITECTURE???-->
 <section id="gallery" class="section section-tint">
   <div class="section-head">
     <h2><span class="num">2</span> Captures from the Orbit</h2>
@@ -504,26 +504,61 @@
       <img src="assets/scene_poses.png" alt="3D scene plot of estimated object positions." />
       <figcaption>Reconstructed object centroids in <code>base_link</code>.</figcaption>
     </figure>
-    <figure class="figure">
-      <img src="assets/masks_debug.png" alt="Per-view mask debug visualization." />
-      <figcaption>Per-view SAM2 mask debug strip across the orbit.</figcaption>
+
+    <figure class="hero-figure carousel"aria-roledescription="carousel"aria-label="SAM2 mask debug results">
+      <div class="carousel-track">
+        <div class="carousel-slide is-active">
+          <div class="strip s1"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="strip s2"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="strip s3"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="strip s4"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="strip s5"></div>
+        </div>
+        <div class="carousel-slide">
+          <div class="strip s6"></div>
+        </div>
+      </div>
+
+      <button class="carousel-btn carousel-prev"aria-label="Previous slide">‹</button>
+      <button class="carousel-btn carousel-next"aria-label="Next slide">›</button>
+
+      <div class="carousel-dots"role="tablist"aria-label="Carousel pagination">
+        <button class="carousel-dot is-active" role="tab" data-i="0"></button>
+        <button class="carousel-dot" role="tab" data-i="1"></button>
+        <button class="carousel-dot" role="tab" data-i="2"></button>
+        <button class="carousel-dot" role="tab" data-i="3"></button>
+        <button class="carousel-dot" role="tab" data-i="4"></button>
+        <button class="carousel-dot" role="tab" data-i="5"></button>
+      </div>
+      <!--<figcaption>SAM2 masking debug strip.</figcaption> this doesn't work as intended-->
     </figure>
   </div>
+  <div class="two-col">
+    <figure class="figure">
+        <span class="ph-tag">VIDEO DEMO</span>
+        <p>End-to-end demo run (orbit → segmentation → pick sequence).</p>
+        <iframe
+          src="https://drive.google.com/file/d/1ZvJWHgZEgT7H33ZIcDSmg-mxVdF9k3Mp/preview"
+          width="100%"
+          height="420"
+          allow="autoplay">
+        </iframe>
+    </figure>
 
-  <div class="placeholder-grid">
-    <div class="placeholder">
-      <span class="ph-tag">VIDEO</span>
-      <p>End-to-end demo run (orbit → segmentation → pick sequence). To be embedded once the placement stage is locked.</p>
+    <figure class="figure">
+      <span class="ph-tag">VIDEO DEMO</span>
+      <img src="assets/" alt="Hero shot of final setup with all detected objects placed on the plate." />
+    </figure>
     </div>
-    <div class="placeholder">
-      <span class="ph-tag">PHOTO</span>
-      <p>Hero shot of the final robot setup with all detected objects placed on the plate.</p>
-    </div>
-    <div class="placeholder">
-      <span class="ph-tag">METRICS</span>
-      <p>Pick success rate per class · mean grasp time · placement error vs. plate centroid.</p>
-    </div>
-  </div>
+
 </section>
 
 <!-- ============================================================ STATUS -->
@@ -571,15 +606,42 @@
 </section>
 
 <!-- ============================================================ AI Disclosure -->
-<section id="status" class="section">
+<section id="disclosure" class="section">
   <div class="section-head">
     <h2><span class="num">6</span> AI Use Disclosure</h2>
-    <p class="section-sub">
-      Throughout the project creation process, ChatGPT, Gemini, and Claude Code were used. The usage of AI includes:
-
-
+    <p class="section-sub">Throughout the project creation process, ChatGPT, Gemini, and Claude Code were used in supporting roles for debugging, 
+      code integration, logic design, and website development.
     </p>
   </div>
+
+  <div class="section-body">
+    <h3>Bug Fixes</h3>
+    <p>Although we were able to independently resolve most issues, several sections of the codebase contained logical errors, particularly during 
+      integration of the UR7e arm. These issues often resulted in unintended robot behavior or runtime errors that prevented execution. 
+      AI was used to suggest edits, including adding, removing, and modifying lines of code to resolve these bugs efficiently.
+    </p>
+
+    <h3>Code Integration</h3>
+    <p>The project was developed in modular components (arm circling, bounding boxes, pixel masking, etc), allowing parallel development across team members. 
+      However, while each module functioned independently, integrating them into a unified system often resulted in code that would often fail after minor adjustments. 
+      AI was used to consolidate these components into a cohesive pipeline, including merging scripts and restructuring packages, to allow the packagers to work together.
+    </p>
+
+    <h3>Logic and Implementation Support</h3>
+    <p>Although the intended system behavior was well understood, AI was used to assist in translating high-level ideas into implementation details. This included 
+      generating pseudocode, as well as adjusting logic as necessary to allow the pipeline to work as intended.
+    </p>
+
+    <h3>Website Development</h3>
+    <p>The formatting, layout, and visual design of this website were assisted using AI tools. However, all content&mdash;test descriptions, images, and images&mdash;
+      were manually created and curated.
+    </p>
+
+    <h3>Note</h3>
+    <p>The Lab 5 starter code was used as the baseline for portions of this project.</p>
+
+  </div>
+</section>
 
 <!-- ============================================================ FOOTER -->
 <footer class="footer">

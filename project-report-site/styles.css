@@ -531,6 +531,28 @@ a:hover { color: #93a7ff; }
   line-height: 1.65;
   font-weight: 300;
 }
+.section-body {
+  max-width: var(--max);
+  margin: 0 auto;
+}
+.section-body h3 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin: 24px 0 12px;
+  letter-spacing: -0.005em;
+}
+.section-body h3:first-child {
+  margin-top: 0;
+}
+.section-body p {
+  font-size: 15px;
+  color: var(--ink-soft);
+  font-weight: 300;
+  line-height: 1.65;
+  margin: 0 0 16px;
+}
 
 /* ===========================================================
    Cards (phase / status / pose)
@@ -999,7 +1021,7 @@ a:hover { color: #93a7ff; }
   max-width: var(--max);
   margin: 22px auto 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
 }
 .placeholder {
@@ -1092,6 +1114,27 @@ a:hover { color: #93a7ff; }
 [data-reveal][data-delay="300"] { transition-delay: 300ms; }
 [data-reveal][data-delay="400"] { transition-delay: 400ms; }
 
+/*breaking up the png image Nathan wants used*/
+.strip {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background-image: url("assets/masks_debug.png");
+  background-repeat: no-repeat;
+  background-size: 700% auto;
+  border-radius: inherit;
+}
+
+/* seven equal slices */
+.s1 { background-position:   0% 0; }
+.s2 { background-position:  16.66% 0; }
+.s3 { background-position:  33.33% 0; }
+.s4 { background-position:  50% 0; }
+.s5 { background-position:  66.66% 0; }
+.s6 { background-position:  83.33% 0; }
+.s7 { background-position: 100% 0; }
+
+
+
 /* ===========================================================
    Responsive
    =========================================================== */
@@ -1133,3 +1176,4 @@ a:hover { color: #93a7ff; }
   .orb { animation: none; }
   [data-reveal] { opacity: 1; transform: none; }
 }
+
