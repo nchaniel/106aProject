@@ -40,11 +40,11 @@ PICK_OFFSETS = {
         "x_offset":           0.005,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
-        "grasp_z_offset":     0.13,
+        "grasp_z_offset":     0.14,
         "lift_z_offset":      0.185,
     },
     "tomato": {
-        "x_offset":           0.015,
+        "x_offset":           0.005,
         "y_offset":           0.005,
         "pre_grasp_z_offset": 0.16,
         "grasp_z_offset":     0.145,
@@ -52,7 +52,7 @@ PICK_OFFSETS = {
     },
     "cake": {
         "x_offset":           0.005,
-        "y_offset":           0.00,
+        "y_offset":           0.005,
         "pre_grasp_z_offset": 0.20,
         "grasp_z_offset":     0.14,
         "lift_z_offset":      0.20,
@@ -103,10 +103,10 @@ DEFAULT_OFFSETS = {
     "lift_z_offset":      0.185,
 }
 
-# Applied to the z from the 6D RANSAC pipeline when placing back at detected position.
-# RANSAC tends to overestimate z (object centroid appears higher than actual).
-# Tune this: negative = lower the drop point, positive = raise it.
+# Applied to drop positions from the 6D RANSAC pipeline.
+# Tune these to correct systematic bias in the triangulated estimates.
 DROP_Z_CORRECTION = -0.05
+DROP_Y_CORRECTION = -0.04
 
 class UR7e_CubeGrasp(Node):
     def __init__(self):
@@ -294,7 +294,7 @@ class UR7e_CubeGrasp(Node):
             seg_pos = self._task_queue[self._task_idx].get('position', None)
             if seg_pos is not None:
                 drop_x = float(seg_pos[0])
-                drop_y = float(seg_pos[1])
+                drop_y = float(seg_pos[1]) + DROP_Y_CORRECTION
                 drop_z = float(seg_pos[2]) + DROP_Z_CORRECTION
             else:
                 drop_x = self.plate_pose.point.x

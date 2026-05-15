@@ -83,7 +83,7 @@ OBJECTS = [
     ),
 
     ObjectConfig(
-        name        = "small_tomato",
+        name        = "tomato",
         stl_path    = "models/Small_Tomato_STL.stl",
         color_rgb   = (210, 50, 40),
         diameter_m  = 0.03,
@@ -125,7 +125,7 @@ SEG_NAME_MAP = {
     "cake":       "cake",
     "grape":      "grape",
     "strawberry": "strawberry",
-    "tomato": "small_tomato",
+    "tomato": "tomato",
     "apple": "apple",
 }
 
