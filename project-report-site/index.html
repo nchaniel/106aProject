@@ -46,7 +46,7 @@
       A closed-loop robotic system that detects food objects on a table with a
       wrist-mounted Intel RealSense camera, reconstructs their 3D positions in
       the robot's base frame, and executes MoveIt&nbsp;2-planned grasps that
-      deposit each object onto a detected plate.
+      deposit each object onto a detected plate in their estimated positions.
     </p>
     <div class="hero-cta">
       <a href="#architecture" class="btn btn-primary">Explore the architecture →</a>
@@ -94,9 +94,9 @@
   <div class="section-head">
     <h2><span class="num">1</span> System Overview</h2>
     <p class="section-sub">
-      Two phases. An offline inspection orbit builds a multi-view dataset of the
-      scene; an online executor turns the resulting 6D positions into a sequence
-      of grasps. Each phase below is a brief — full technical content lives in
+      There are two phases. An offline inspection orbit builds a multi-view dataset of the
+      scene using MoveIt, YOLO, and SAM2; an online executor turns the resulting 6D positions into a sequence
+      of grasps. Each phase below is a brief — more technical content is in
       the interactive architecture diagram.
     </p>
   </div>
@@ -105,10 +105,10 @@
     <article class="phase-card">
       <h3><span class="phase-num">01</span> Inspection</h3>
       <p>
-        The arm orbits the plate in two rows of twenty waypoints, with the camera
-        permanently aimed at the centroid. Each waypoint saves an RGB capture and
-        the corresponding end-effector pose. When forty frames are written,
-        <code>/orbit_done</code> latches.
+        The arm orbits the plate in two rows of twenty waypoints, with the end-effector tool
+        permanently aimed at the centroid (except for the overhead shot). Each waypoint saves an RGB capture as a .png file and
+        the corresponding end-effector pose into an .npy file. When forty one frames are written,
+        <code>/orbit_done</code> becomes True and segmentation begins.
       </p>
       <p class="phase-foot">
         <a href="#architecture" data-open-detail="armcircler">Open ArmCircler →</a>
@@ -118,8 +118,8 @@
     <article class="phase-card">
       <h3><span class="phase-num">02</span> Execution</h3>
       <p>
-        The commander runs YOLO + SAM2 segmentation and multi-view triangulation
-        to produce <code>object_poses.npy</code>. The user presses Enter and
+        The commander runs YOLO + SAM2 segmentation and Weighted DLT triangulation
+        to produce <code>object_poses.npy</code>, which contains the info about the estimate positions of each detected object. The user presses Enter and
         <code>UR7e_CubeGrasp</code> executes a seven-step grasp for each object,
         returning home between picks.
       </p>
@@ -133,7 +133,7 @@
     <li><strong>UR7e</strong><span>6-DoF arm</span></li>
     <li><strong>YOLOv8 + SAM2</strong><span>Detection &amp; segmentation</span></li>
     <li><strong>41 waypoints</strong><span>Orbit inspection</span></li>
-    <li><strong>Multi-view</strong><span>RANSAC triangulation</span></li>
+    <li><strong>Weighted DLT triangulation</strong><span>RANSAC for outlier rejection</span></li>
   </ul>
 </section>
 
@@ -376,7 +376,7 @@
       <ul>
         <li><strong>Look-at orientation:</strong> <code>rot_z · rot_y · rot_x</code> always points the camera at the plate.</li>
         <li><strong>Heights:</strong> row 1 at 0.30 m, row 2 reversed at 0.20 m.</li>
-        <li><strong>Total waypoints:</strong> 2 rows × 21 waypoints = 42 frames.</li>
+        <li><strong>Total waypoints:</strong> 2 rows × 20 waypoints + 1 overhead shot = 41 frames.</li>
       </ul>
       <p>These frames are captured as a multi-view orbit around the plate, with representative shots taken at key points such as frames 1, 15, and 30, and can be seen below. Each image is stored in <code>captured_images/</code> and used downstream by the segmentation and triangulation pipeline.</p>
       <div class="gallery gallery-inline">
