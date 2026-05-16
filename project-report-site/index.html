@@ -28,7 +28,6 @@
     </a>
     <nav class="nav">
       <a href="#overview">Overview</a>
-      <a href="#gallery">Gallery</a>
       <a href="#architecture">Architecture</a>
       <a href="#results">Results</a>
       <a href="#status">Status</a>
@@ -41,7 +40,7 @@
 <!-- ============================================================ HERO -->
 <section class="hero">
   <div class="hero-text">
-    <p class="eyebrow">ME C106A · Final Engineering Report</p>
+    <p class="eyebrow">ME C106A · Final Project Report</p>
     <h1>Vision-Guided Pick and Place with a UR7e Robot Arm: "Culinary Bot"</h1>
     <p class="lede">
       A closed-loop robotic system that detects food objects on a table with a
@@ -51,7 +50,7 @@
     </p>
     <div class="hero-cta">
       <a href="#architecture" class="btn btn-primary">Explore the architecture →</a>
-      <a href="#gallery" class="btn btn-ghost">See it in action</a>
+      <a href="#results" class="btn btn-ghost">See the results</a>
     </div>
     <div class="hero-meta">
       <span>Authors: Nathaniel Chan &comma; Nathan Lam &comma; Christopher-Michael Garcia &comma; Alan Tran &comma; &amp; William Ou</span>
@@ -138,31 +137,10 @@
   </ul>
 </section>
 
-<!-- ============================================================ GALLERY (visual strip) -->
-<!-- DELETE SECTION, INSTEAD INTEGRATE INTO ARCHITECTURE???-->
-<section id="gallery" class="section section-tint">
-  <div class="section-head">
-    <h2><span class="num">2</span> Captures from the Orbit</h2>
-    <p class="section-sub">
-      Snapshots from a 40-waypoint orbit around the plate. Each frame is paired
-      with the corresponding end-effector pose and fed downstream to YOLO + SAM2.
-    </p>
-  </div>
-
-  <div class="gallery">
-    <figure><img src="assets/captured_1.jpg"  alt="Orbit frame 1"><figcaption>Frame 1</figcaption></figure>
-    <figure><img src="assets/captured_10.jpg" alt="Orbit frame 10"><figcaption>Frame 10</figcaption></figure>
-    <figure><img src="assets/captured_15.jpg" alt="Orbit frame 15"><figcaption>Frame 15</figcaption></figure>
-    <figure><img src="assets/captured_20.jpg" alt="Orbit frame 20"><figcaption>Frame 20</figcaption></figure>
-    <figure><img src="assets/captured_25.jpg" alt="Orbit frame 25"><figcaption>Frame 25</figcaption></figure>
-    <figure><img src="assets/captured_30.jpg" alt="Orbit frame 30"><figcaption>Frame 30</figcaption></figure>
-  </div>
-</section>
-
 <!-- ============================================================ ARCHITECTURE (interactive) -->
 <section id="architecture" class="section">
   <div class="section-head">
-    <h2><span class="num">3</span> Architecture</h2>
+    <h2><span class="num">2</span> Architecture</h2>
     <p class="section-sub">
       The pipeline is split across two ROS&nbsp;2 packages — <code>perception</code>
       and <code>planning</code> — with MoveIt&nbsp;2 providing IK and motion
@@ -400,6 +378,12 @@
         <li><strong>Heights:</strong> row 1 at 0.30 m, row 2 reversed at 0.20 m.</li>
         <li><strong>Total waypoints:</strong> 2 rows × 20 waypoints = 40 frames.</li>
       </ul>
+      <p>These frames are captured as a multi-view orbit around the plate, with representative shots taken at key points such as frames 1, 15, and 30, and can be seen below. Each image is stored in <code>captured_images/</code> and used downstream by the segmentation and triangulation pipeline.</p>
+      <div class="gallery gallery-inline">
+        <figure><img src="assets/captured_1.jpg" alt="Orbit frame 1"><figcaption>Frame 1</figcaption></figure>
+        <figure><img src="assets/captured_15.jpg" alt="Orbit frame 15"><figcaption>Frame 15</figcaption></figure>
+        <figure><img src="assets/captured_30.jpg" alt="Orbit frame 30"><figcaption>Frame 30</figcaption></figure>
+      </div>
       <p class="callout-inline"><strong>Why orbit?</strong> Single-frame depth centroids degrade near the edge of the camera frame. Forty views give the offline pipeline enough parallax for stable triangulation.</p>
     </template>
 
@@ -491,7 +475,7 @@
 <!-- ============================================================ RESULTS -->
 <section id="results" class="section section-tint">
   <div class="section-head">
-    <h2><span class="num">4</span> Results &amp; Pose Reconstruction</h2>
+    <h2><span class="num">3</span> Results &amp; Pose Reconstruction</h2>
     <p class="section-sub">
       Reconstructed object centroids in <code>base_link</code> from multi-view
       triangulation, plus the SAM2 mask debug strip used to verify
@@ -501,8 +485,9 @@
 
   <div class="two-col">
     <figure class="figure">
+      <span class="ph-tag">IMAGE</span>
+      <p>Reconstructed object centroids in <code>base_link</code>.</p>
       <img src="assets/scene_poses.png" alt="3D scene plot of estimated object positions." />
-      <figcaption>Reconstructed object centroids in <code>base_link</code>.</figcaption>
     </figure>
 
     <figure class="hero-figure carousel"aria-roledescription="carousel"aria-label="SAM2 mask debug results">
@@ -554,8 +539,8 @@
     </figure>
 
     <figure class="figure">
-      <span class="ph-tag">VIDEO DEMO</span>
-      <img src="assets/" alt="Hero shot of final setup with all detected objects placed on the plate." />
+      <span class="ph-tag">IMAGE</span>
+      <img src="assets/" alt="Photo of final result with all detected objects placed on the plate." />
     </figure>
     </div>
 
@@ -564,7 +549,7 @@
 <!-- ============================================================ STATUS -->
 <section id="status" class="section">
   <div class="section-head">
-    <h2><span class="num">5</span> Status &amp; What's Next</h2>
+    <h2><span class="num">4</span> Status &amp; What's Next</h2>
     <p class="section-sub">
       Perception and orbit inspection are stable, the offline 6D pipeline runs
       end-to-end, and pick execution works on rigid objects. Placement on the

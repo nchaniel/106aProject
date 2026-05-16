@@ -66,7 +66,7 @@ body {
 
 /* ===========================================================
    Ambient background — drifting gradient orbs + faint grid
-   =========================================================== */
+   =========================================================== 
 .bg-orbs {
   position: fixed;
   inset: 0;
@@ -121,6 +121,8 @@ body {
   mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
   -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
 }
+
+*/
 
 /* ===========================================================
    Code chip
