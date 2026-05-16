@@ -1,7 +1,7 @@
 # NOTE: realsense_launch is commented out in lab5_bringup.launch.py.
 # Start the camera separately before running bringup:
-#   ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=1280x720x30
-# To re-enable camera launch from bringup, uncomment realsense_launch in lab5_bringup.launch.py.
+# ros2 launch realsense2_camera rs_launch.py pointcloud.enable:=true rgb_camera.color_profile:=640x480x30 (idk why 1920x1080 doesn't work)
+# from testing i think this allows us to test faster rather than bringing up the camera each time
 
 import json
 
@@ -29,12 +29,7 @@ import sys
 import select
 from scipy.spatial.transform import Rotation as R
 
-# Per-class grasp offsets. Tune each entry so the gripper clears the object
-# without hitting the table.
-#   x_offset / y_offset      : lateral correction applied to the centroid
-#   pre_grasp_z_offset        : height above centroid for the hover waypoint
-#   grasp_z_offset            : height above centroid where the gripper closes
-#   lift_z_offset             : height above centroid after grasping
+# Per-class grasp offsets
 PICK_OFFSETS = {
     "apple": {
         "x_offset":           0.005,
@@ -103,10 +98,9 @@ DEFAULT_OFFSETS = {
     "lift_z_offset":      0.185,
 }
 
-# Applied to drop positions from the 6D RANSAC pipeline.
-# Tune these to correct systematic bias in the triangulated estimates.
-DROP_Z_CORRECTION = -0.05
-DROP_Y_CORRECTION = -0.04
+# Drop correction
+drop_z_correction = -0.05
+drop_y_correction = -0.04
 
 class UR7e_CubeGrasp(Node):
     def __init__(self):
@@ -147,10 +141,7 @@ class UR7e_CubeGrasp(Node):
 
         self.job_queue = [] # Entries should be of type either JointState or String('toggle_grip')
 
-        # Joint-space observation pose.
-        # TODO: move the arm to the desired observation position manually, then run:
-        #   ros2 topic echo /joint_states --once
-        # and fill in the 6 joint angles below in the order:
+       
         #   shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
         self._home_joints = [4.750492095947266, -1.4821723264506836, -2.0345261096954346, -1.2388786238482972, 1.5857458114624023, -3.075918738042013]
         self._going_home = False
@@ -294,8 +285,8 @@ class UR7e_CubeGrasp(Node):
             seg_pos = self._task_queue[self._task_idx].get('position', None)
             if seg_pos is not None:
                 drop_x = float(seg_pos[0])
-                drop_y = float(seg_pos[1]) + DROP_Y_CORRECTION
-                drop_z = float(seg_pos[2]) + DROP_Z_CORRECTION
+                drop_y = float(seg_pos[1]) + drop_y_correction
+                drop_z = float(seg_pos[2]) + drop_z_correction
             else:
                 drop_x = self.plate_pose.point.x
                 drop_y = self.plate_pose.point.y
