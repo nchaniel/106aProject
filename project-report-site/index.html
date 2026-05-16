@@ -132,7 +132,7 @@
   <ul class="kpi-row">
     <li><strong>UR7e</strong><span>6-DoF arm</span></li>
     <li><strong>YOLOv8 + SAM2</strong><span>Detection &amp; segmentation</span></li>
-    <li><strong>40 waypoints</strong><span>Orbit inspection</span></li>
+    <li><strong>41 waypoints</strong><span>Orbit inspection</span></li>
     <li><strong>Multi-view</strong><span>RANSAC triangulation</span></li>
   </ul>
 </section>
@@ -376,7 +376,7 @@
       <ul>
         <li><strong>Look-at orientation:</strong> <code>rot_z · rot_y · rot_x</code> always points the camera at the plate.</li>
         <li><strong>Heights:</strong> row 1 at 0.30 m, row 2 reversed at 0.20 m.</li>
-        <li><strong>Total waypoints:</strong> 2 rows × 20 waypoints = 40 frames.</li>
+        <li><strong>Total waypoints:</strong> 2 rows × 21 waypoints = 42 frames.</li>
       </ul>
       <p>These frames are captured as a multi-view orbit around the plate, with representative shots taken at key points such as frames 1, 15, and 30, and can be seen below. Each image is stored in <code>captured_images/</code> and used downstream by the segmentation and triangulation pipeline.</p>
       <div class="gallery gallery-inline">
@@ -400,48 +400,232 @@
     </template>
 
 <template id="tpl-main">
-  <header><span class="tag tag-plan">planning</span><h3>UR7e_CubeGrasp — Pick-and-Place State Machine</h3></header>
-  <p>The pick-and-place pipeline is organized as a state machine that manages the <code>busy</code> semaphore, the <code>job_queue</code>, and the full grasp sequence. Every arm motion is executed asynchronously through trajectory actions, while gripper commands are handled synchronously through service calls.</p>
-  <p>All operations begin from the observation frame. After every pick and place cycle, the arm returns to this pose so the camera can view the entire workspace and recalculate object positions. Re-observing the workspace prevents error buildup that would occur if the arm relied only on predetermined coordinates.</p>
+  <header>
+    <span class="tag tag-plan">planning</span>
+    <h3>UR7e_CubeGrasp — Pick-and-Place State Machine</h3>
+  </header>
+
+  <p>
+    Once segmentation and position estimation are complete, the commander node
+    waits for user input before beginning pick and place. After the user presses
+    <kbd>Enter</kbd>, the commander node sends a JSON-encoded list containing the
+    sorted objects and their estimated positions to <code>main.py</code> (the
+    pick-and-place node), and execution begins.
+  </p>
+
+  <p>
+    The pick-and-place pipeline is organized as a state machine that manages the
+    <code>busy</code> semaphore, the <code>job_queue</code>, and the full grasp
+    sequence. Every arm motion is executed asynchronously through trajectory
+    actions, while gripper commands are handled synchronously through service
+    calls. The node uses the same action architecture as the arm circler to fill
+    a queue of joint trajectories and execute them sequentially.
+  </p>
+
+  <p>
+    All operations begin from the observation frame. After arm circler finishes
+    and the user proceeds with pick and place, the arm moves to the observation
+    frame before starting the first cycle. After every pick and place operation,
+    the arm returns to this pose so the camera can view the entire workspace and
+    recalculate object positions. Re-observing the workspace prevents error
+    buildup that would occur if the arm relied only on predetermined
+    coordinates.
+  </p>
+
   <ol class="steps-inline">
-    <li><strong>Home</strong> — observation frame (idle pose); gripper open. Camera has a full view of the workspace for object detection and position recalculation.</li>
-    <li><strong>Pre-pregrasp</strong> — IK solution generated at <code>(cx, cy, cz + 0.5)</code> so the camera can observe the object from a centered viewpoint, reducing fisheye distortion.</li>
-    <li><strong>Refine</strong> — a second detection pass recalculates the centroid from the centered viewpoint. This improves consistency when objects are partially visible and rebuilds the queue using the full <code>PICK_OFFSETS</code> configuration for the detected object class.</li>
-    <li><strong>Hover → descend → grip → lift</strong> — chained IK solutions reuse the previous joint solution as the seed to avoid discontinuities such as elbow flips. Hardcoded offsets compensate for object height and form factor differences between fruits.</li>
-    <li><strong>Over plate → lower → release</strong> — translate to <code>(plate_x, plate_y, drop_z + 0.20)</code>, descend using hardcoded <code>z</code> and <code>y</code> offsets, release the object, and retract upward. The z-offset compensates for imperfect table-depth estimation and gripper height, while the y-offset improves lateral placement alignment.</li>
-    <li><strong>Return home</strong> — <code>_going_home</code> clears <code>busy</code> once the arm settles at the observation frame, allowing the next pick cycle to begin safely.</li>
+    <li>
+      <strong>Home</strong> — observation frame (idle pose); gripper open.
+      Camera has a full view of the workspace for object detection and position
+      recalculation.
+    </li>
+
+    <li>
+      <strong>Object selection</strong> — the pick-and-place node uses the
+      sorted list of foods and estimated positions from the JSON payload to
+      determine pick order. YOLO detections provide object classes and centroids
+      for both foods and the plate.
+    </li>
+
+    <li>
+      <strong>Pre-pregrasp</strong> — IK solution generated at
+      <code>(cx, cy, cz + 0.5)</code> so the camera can observe the object from
+      a centered viewpoint, reducing fisheye distortion.
+    </li>
+
+    <li>
+      <strong>Refine</strong> — a second detection pass recalculates the
+      centroid from the centered viewpoint. This improves consistency when
+      objects are partially visible and rebuilds the queue using the full
+      <code>PICK_OFFSETS</code> configuration for the detected object class.
+    </li>
+
+    <li>
+      <strong>Hover → descend → grip → lift</strong> — chained IK solutions
+      reuse the previous joint solution as the seed to avoid discontinuities
+      such as elbow flips. Calibrated hardcoded offsets compensate for object height and
+      form factor differences between fruits while gripping.
+    </li>
+
+    <li>
+      <strong>Over plate → lower → release</strong> — translate relative to the
+      plate centroid detected by YOLO using the placement positions from the
+      JSON task list. The arm moves to
+      <code>(plate_x, plate_y, drop_z + 0.20)</code>, descends using hardcoded
+      <code>z</code> and <code>y</code> offsets, releases the object, and
+      retracts upward. The z-offset compensates for imperfect table-depth
+      estimation and gripper height, while the y-offset improves lateral
+      placement alignment.
+    </li>
+
+    <li>
+      <strong>Return home</strong> — <code>_going_home</code> clears
+      <code>busy</code> once the arm settles at the observation frame, allowing
+      the next pick cycle to begin safely. This repeats until no objects remain
+      in the task list and the module declares the process complete.
+    </li>
   </ol>
 
   <div class="mini-table">
     <table>
-      <thead><tr><th>Class</th><th>x</th><th>y</th><th>pre_grasp_z</th><th>grasp_z</th><th>lift_z</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>x</th>
+          <th>y</th>
+          <th>pre_grasp_z</th>
+          <th>grasp_z</th>
+          <th>lift_z</th>
+        </tr>
+      </thead>
       <tbody>
-        <tr><td>apple</td><td>0.01</td><td>0.005</td><td>0.16</td><td>0.125</td><td>0.185</td></tr>
-        <tr><td>tomato</td><td>0.015</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
-        <tr><td>cake</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.15</td><td>0.20</td></tr>
-        <tr><td>strawberry</td><td>0.02</td><td>0.005</td><td>0.20</td><td>0.14</td><td>0.20</td></tr>
-        <tr><td><em>default</em></td><td>0.02</td><td>0.005</td><td>0.16</td><td>0.14</td><td>0.185</td></tr>
+        <tr>
+          <td>apple</td>
+          <td>0.01</td>
+          <td>0.005</td>
+          <td>0.16</td>
+          <td>0.125</td>
+          <td>0.185</td>
+        </tr>
+        <tr>
+          <td>tomato</td>
+          <td>0.015</td>
+          <td>0.005</td>
+          <td>0.16</td>
+          <td>0.14</td>
+          <td>0.185</td>
+        </tr>
+        <tr>
+          <td>cake</td>
+          <td>0.02</td>
+          <td>0.005</td>
+          <td>0.20</td>
+          <td>0.15</td>
+          <td>0.20</td>
+        </tr>
+        <tr>
+          <td>strawberry</td>
+          <td>0.02</td>
+          <td>0.005</td>
+          <td>0.20</td>
+          <td>0.14</td>
+          <td>0.20</td>
+        </tr>
+        <tr>
+          <td><em>default</em></td>
+          <td>0.02</td>
+          <td>0.005</td>
+          <td>0.16</td>
+          <td>0.14</td>
+          <td>0.185</td>
+        </tr>
       </tbody>
     </table>
   </div>
 
   <h4>State Management Flags</h4>
-  <p>The pipeline uses boolean state flags to coordinate perception, trajectory execution, and grasp planning. These flags prevent overlapping commands and ensure the robot only reacts to detections when it is in a safe observation state.</p>
+
+  <p>
+    The pipeline uses boolean state flags to coordinate perception, trajectory
+    execution, and grasp planning. These flags prevent overlapping commands and
+    ensure the robot only reacts to detections when it is in a safe observation
+    state.
+  </p>
+
   <div class="mini-table">
     <table>
-      <thead><tr><th>Flag</th><th>Purpose</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Flag</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
       <tbody>
-        <tr><td><code>busy</code></td><td>Indicates that the arm is currently moving or an active pick cycle is running. New detections are ignored until the arm returns home or a trajectory failure occurs.</td></tr>
-        <tr><td><code>_refining</code></td><td>Enabled while the arm moves toward the pre-pregrasp pose. During this phase, live detections are temporarily suppressed until refined centroid estimation is completed.</td></tr>
-        <tr><td><code>_at_pre_pregrasp</code></td><td>Signals that the arm has reached the pre-pregrasp waypoint and that refined centroid detection should begin.</td></tr>
-        <tr><td><code>_going_home</code></td><td>Indicates that the home waypoint is currently queued or the arm is actively returning to the observation frame.</td></tr>
-        <tr><td><code>pick_place_enabled</code></td><td>Enables the full pick-and-place pipeline after activation from the commander node.</td></tr>
-        <tr><td><code>_pick_triggered</code></td><td>Prevents duplicate pick attempts by ensuring only one live detection can trigger a pick operation at a time.</td></tr>
+        <tr>
+          <td><code>busy</code></td>
+          <td>
+            Indicates that the arm is currently moving or an active pick cycle
+            is running. New detections are ignored until the arm returns home or
+            a trajectory failure occurs.
+          </td>
+        </tr>
+
+        <tr>
+          <td><code>_refining</code></td>
+          <td>
+            Enabled while the arm moves toward the pre-pregrasp pose. During
+            this phase, live detections are temporarily suppressed until refined
+            centroid estimation is completed.
+          </td>
+        </tr>
+
+        <tr>
+          <td><code>_at_pre_pregrasp</code></td>
+          <td>
+            Signals that the arm has reached the pre-pregrasp waypoint and that
+            refined centroid detection should begin.
+          </td>
+        </tr>
+
+        <tr>
+          <td><code>_going_home</code></td>
+          <td>
+            Indicates that the home waypoint is currently queued or the arm is
+            actively returning to the observation frame.
+          </td>
+        </tr>
+
+        <tr>
+          <td><code>pick_place_enabled</code></td>
+          <td>
+            Enables the full pick-and-place pipeline after activation from the
+            commander node.
+          </td>
+        </tr>
+
+        <tr>
+          <td><code>_pick_triggered</code></td>
+          <td>
+            Prevents duplicate pick attempts by ensuring only one live detection
+            can trigger a pick operation at a time.
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>
 
-  <p class="callout-inline"><strong>Refined centroid calculation:</strong> Recalculating the centroid from 0.5 m above the object produces more stable measurements by reducing fisheye distortion and handling partially visible objects. The <code>PICK_OFFSETS</code> per-class adjustments can then be applied consistently across all pick cycles.</p>
+  <p class="callout-inline">
+    <strong>Detection filtering:</strong> The detection node filters out objects
+    within a specified radius of the plate so the pick-and-place node does not
+    attempt to pick foods that have already been placed.
+  </p>
+
+  <p class="callout-inline">
+    <strong>Refined centroid calculation:</strong> Recalculating the centroid
+    from 0.5 m above the object produces more stable measurements by reducing
+    fisheye distortion and handling partially visible objects. The
+    <code>PICK_OFFSETS</code> per-class adjustments can then be applied
+    consistently across all pick cycles.
+  </p>
 </template>
 
     <template id="tpl-ik">
@@ -562,7 +746,7 @@
       <h3>Working</h3>
       <ul>
         <li>Live YOLOv8 detection + plate-radius exclusion</li>
-        <li>40-waypoint orbit with synchronized pose logging</li>
+        <li>41-waypoint orbit with synchronized pose logging</li>
         <li>SAM2 batch segmentation across all captures</li>
         <li>Multi-view RANSAC triangulation in <code>base_link</code></li>
         <li>Async MoveIt-planned pick sequence with refinement</li>
@@ -634,12 +818,14 @@
     <div>
       <strong>ME C106A · Vision-Guided Pick and Place</strong>
       <p>UC Berkeley · Spring 2026 · Authors: Nathaniel Chan &comma; Nathan Lam &comma; Christopher-Michael Garcia &comma; Alan Tran &comma; &amp; William Ou</p>
+      <p>Link to repository: <a href="https://github.com/nchaniel/106aProject">https://github.com/nchaniel/106aProject</a></p>
     </div>
     <div class="footer-links">
       <a href="#top">↑ Back to top</a>
     </div>
   </div>
 </footer>
+
 
 <script src="script.js"></script>
 </body>
